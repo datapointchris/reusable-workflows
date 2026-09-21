@@ -1,0 +1,60 @@
+name: python-semantic-release
+
+# Versions a Python project from its conventional commits. python-semantic-release
+# writes the version into pyproject.toml, commits it, tags, and creates the
+# GitHub release. It reads everything else from the caller's
+# [tool.semantic_release] table.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          The runner, as JSON: '"ubuntu-latest"', or '["self-hosted","<label>"]'
+          for a pool.
+        type: string
+        default: '"ubuntu-latest"'
+      directory:
+        description: The directory holding pyproject.toml, from the repository root.
+        type: string
+        default: .
+      noop:
+        description: >-
+          Work out the release and write nothing: no commit, no tag, no GitHub
+          release. The outputs still carry what would have been cut.
+        type: boolean
+        default: false
+    outputs:
+      released:
+        description: '"true" when a version was cut.'
+        value: ${{ jobs.release.outputs.released }}
+      version:
+        description: The version cut, with no leading v.
+        value: ${{ jobs.release.outputs.version }}
+      tag:
+        description: The tag cut. A publish job checks it out rather than the branch.
+        value: ${{ jobs.release.outputs.tag }}
+
+jobs:
+  release:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: python-semantic-release/python-semantic-release@21ed7fa03e4a17ac49406eff4b60d5ad050fbdc2 # v9.21.2
+        id: release
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          directory: ${{ inputs.directory }}
+          root_options: ${{ inputs.noop && '-v --noop' || '-v' }}
+          # The GitHub release body is the changelog, built from the same
+          # commits, so no CHANGELOG.md is written or tracked.
+          changelog: "false"

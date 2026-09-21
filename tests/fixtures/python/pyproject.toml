@@ -1,0 +1,14 @@
+# A project python-semantic-release can version, so the release workflow can
+# dry-run python-semantic-release.yml before it moves the major tag.
+#
+# Its own tag_format keeps it off this repository's vX.Y.Z tags. The dry run
+# then always computes a first release, and never reads a real one.
+
+[project]
+name = "fixture"
+version = "0.0.0"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "main"
+tag_format = "fixture-v{version}"

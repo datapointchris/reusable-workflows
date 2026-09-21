@@ -1,0 +1,115 @@
+name: go-semantic-release
+
+# Tags a version from the conventional commits since the last release and
+# creates the GitHub release, then optionally builds binaries onto it with
+# goreleaser. go-semantic-release reads no language, so a repository that ships
+# only a tag calls this too. It reads the caller's .semrelrc when there is one.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          The runner, as JSON: '"ubuntu-latest"', or '["self-hosted","<label>"]'
+          for a pool.
+        type: string
+        default: '"ubuntu-latest"'
+      allow-initial-development-versions:
+        description: >-
+          Keep a 0.x version on 0.x. Without it, go-semantic-release cuts 1.0.0
+          on the next change of any kind.
+        type: boolean
+        default: false
+      goreleaser:
+        description: >-
+          Once a version is cut, build it with goreleaser from the
+          .goreleaser.yaml in directory and upload the binaries to its release.
+        type: boolean
+        default: false
+      prime-module-proxy:
+        description: >-
+          Once a version is cut, fetch it through proxy.golang.org, so
+          `go install <module>@latest` and pkg.go.dev see it immediately.
+        type: boolean
+        default: false
+      directory:
+        description: >-
+          The directory holding go.mod and .goreleaser.yaml, from the repository
+          root.
+        type: string
+        default: .
+      dry:
+        description: >-
+          Work out the version and cut nothing. With goreleaser on, build a
+          snapshot of the pushed commit and upload nothing.
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: >-
+          The version cut, with no leading v. Empty when the commits since the
+          last release call for none. Under dry, the version that would have
+          been cut.
+        value: ${{ jobs.semver.outputs.version }}
+
+jobs:
+  semver:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.semrel.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # No changelog-file: the GitHub release body is the changelog.
+      - uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
+        id: semrel
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          dry: ${{ inputs.dry }}
+
+      # `go install <module>@latest` resolves through the proxy. Until the proxy
+      # has fetched the new tag, it installs the previous version and exits 0.
+      - name: Prime the module proxy
+        if: inputs.prime-module-proxy && !inputs.dry && steps.semrel.outputs.version != ''
+        working-directory: ${{ inputs.directory }}
+        env:
+          VERSION: ${{ steps.semrel.outputs.version }}
+        run: |
+          module=$(awk '/^module /{print $2; exit}' go.mod)
+          curl -fsS "https://proxy.golang.org/${module}/@v/v${VERSION}.info" ||
+            echo "::notice::proxy.golang.org has not fetched v${VERSION} yet, and will on the first request for it"
+
+  goreleaser:
+    needs: semver
+    if: inputs.goreleaser && (inputs.dry || needs.semver.outputs.version != '')
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: write
+    steps:
+      # The tag rather than the branch, because the branch may have moved since
+      # the version was cut.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.dry && github.sha || format('v{0}', needs.semver.outputs.version) }}
+
+      # A self-hosted runner keeps the module cache between jobs. Restoring the
+      # archive over it fails on every file already there.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.directory }}/go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          workdir: ${{ inputs.directory }}
+          args: ${{ inputs.dry && 'release --snapshot --clean' || 'release --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
