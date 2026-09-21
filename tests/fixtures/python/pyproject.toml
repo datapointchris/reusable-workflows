@@ -1,0 +1,17 @@
+# fixtures.yml runs python-semantic-release.yml against this project in noop
+# mode on every push.
+#
+# tag_format keeps the project off this repository's vX.Y.Z tags, so the noop
+# run always computes a first release and never reads a real one. The `any`
+# release group matches every branch, so the run works before a change merges.
+
+[project]
+name = "fixture"
+version = "0.0.0"
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+tag_format = "fixture-v{version}"
+
+[tool.semantic_release.branches.any]
+match = ".*"

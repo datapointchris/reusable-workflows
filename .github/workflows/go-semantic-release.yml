@@ -1,0 +1,170 @@
+name: go-semantic-release
+
+# go-semantic-release reads no language, so a repository that ships only a tag
+# calls this as well as a Go one. The caller's .semrelrc, when there is one,
+# configures it.
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          A Linux x64 runner, as JSON: '"ubuntu-latest"', or
+          '["self-hosted","<label>"]' for a pool.
+        type: string
+        default: '"ubuntu-latest"'
+      allow-initial-development-versions:
+        description: >-
+          Keep a 0.x version on 0.x. Without it, the next fix: or feat: cuts
+          1.0.0.
+        type: boolean
+        default: false
+      goreleaser:
+        description: >-
+          Once a version is cut, build it with goreleaser from the
+          .goreleaser.yaml in directory and upload the binaries to its release.
+        type: boolean
+        default: false
+      prime-module-proxy:
+        description: >-
+          Once a version is cut, fetch it through proxy.golang.org, so
+          `go install <module>@latest` and pkg.go.dev see it immediately. Needs
+          go.mod at the repository root.
+        type: boolean
+        default: false
+      directory:
+        description: >-
+          The directory holding go.mod and .goreleaser.yaml, from the repository
+          root.
+        type: string
+        default: .
+      dry:
+        description: >-
+          Work out the version and cut nothing. With goreleaser on, build a
+          snapshot of the pushed commit and upload nothing.
+        type: boolean
+        default: false
+    outputs:
+      version:
+        description: >-
+          The version cut, with no leading v. Empty when the commits since the
+          last release call for none. Under dry, the version that would have
+          been cut.
+        value: ${{ jobs.semver.outputs.version }}
+
+jobs:
+  semver:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.semrel.outputs.version }}
+    steps:
+      # go-semantic-release cuts the root's vX.Y.Z tag. A module in a
+      # subdirectory resolves only from a <dir>/vX.Y.Z tag, so the proxy can
+      # never serve it at the version cut.
+      - name: Refuse to prime a module outside the repository root
+        if: inputs.prime-module-proxy && inputs.directory != '.'
+        env:
+          DIRECTORY: ${{ inputs.directory }}
+        run: |
+          echo "::error::prime-module-proxy needs go.mod at the repository root, and directory is ${DIRECTORY}"
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Handed no binary, the action downloads the newest semantic-release on
+      # every run, and the binary downloads the newest plugins. Either would
+      # change how every caller's version is worked out, with no commit here.
+      - name: Download semantic-release
+        id: semrel-bin
+        env:
+          VERSION: v2.31.0
+          SHA256: b8f518b1aeb1d1742f4e6e91a179b707cea4309a64fe3854f465bf724f04f6d3
+        run: |
+          bin="${RUNNER_TEMP}/semantic-release"
+          curl -fsSL -o "$bin" \
+            "https://github.com/go-semantic-release/semantic-release/releases/download/${VERSION}/semantic-release_${VERSION}_linux_amd64"
+          echo "${SHA256}  ${bin}" | sha256sum -c -
+          chmod +x "$bin"
+          echo "path=${bin}" >> "$GITHUB_OUTPUT"
+
+      # No changelog-file: the GitHub release body is the changelog. Each
+      # `--<plugin> name@version` flag replaces only the plugin name a caller's
+      # .semrelrc gives. The .semrelrc's options still apply.
+      - uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
+        id: semrel
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          bin: ${{ steps.semrel-bin.outputs.path }}
+          custom-arguments: >-
+            --provider github@1.19.0
+            --commit-analyzer default@1.15.0
+            --ci-condition default@1.11.0
+            --changelog-generator default@1.15.0
+          allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
+          dry: ${{ inputs.dry }}
+
+  # module-proxy is its own job, so a failed fetch leaves goreleaser running.
+  # The run still goes red, and re-running the failed job retries the fetch.
+  module-proxy:
+    needs: semver
+    if: inputs.prime-module-proxy && !inputs.dry && needs.semver.outputs.version != ''
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.semver.outputs.version }}
+
+      # `go install <module>@latest` resolves through the proxy. Until the proxy
+      # has fetched the new tag, `go install` installs the previous version and
+      # exits 0. The proxy spells each capital letter as `!` and its lowercase.
+      - name: Prime the module proxy
+        env:
+          VERSION: v${{ needs.semver.outputs.version }}
+        run: |
+          escape() { printf '%s' "$1" | sed 's/[A-Z]/!&/g' | tr '[:upper:]' '[:lower:]'; }
+          module=$(awk '/^module /{print $2; exit}' go.mod)
+          url="https://proxy.golang.org/$(escape "$module")/@v/$(escape "$VERSION").info"
+          curl -fsS "$url" || {
+            echo "::error::proxy.golang.org did not serve ${module} ${VERSION} from ${url}"
+            exit 1
+          }
+
+  goreleaser:
+    needs: semver
+    if: inputs.goreleaser && (inputs.dry || needs.semver.outputs.version != '')
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: write
+    steps:
+      # goreleaser builds the cut tag, because the branch may have moved since
+      # the version was cut. Under dry no tag exists, so it builds the pushed
+      # commit.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.dry && github.sha || format('v{0}', needs.semver.outputs.version) }}
+
+      # A self-hosted runner keeps the module cache between jobs. Restoring the
+      # archive over it logs `Cannot open: File exists` for every file already
+      # there. With no go.sum, setup-go logs `Dependencies file is not found`
+      # and restores nothing.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ inputs.directory }}/go.mod
+          cache: ${{ runner.environment == 'github-hosted' && hashFiles(format('{0}/go.sum', inputs.directory)) != '' }}
+          cache-dependency-path: ${{ inputs.directory }}/go.sum
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        with:
+          distribution: goreleaser
+          version: v2.17.0
+          workdir: ${{ inputs.directory }}
+          args: ${{ inputs.dry && 'release --snapshot --clean' || 'release --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

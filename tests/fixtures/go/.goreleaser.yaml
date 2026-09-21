@@ -1,0 +1,9 @@
+version: 2
+project_name: fixture
+builds:
+  - main: .
+    binary: fixture
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64]

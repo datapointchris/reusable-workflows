@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Two pushes to main inside one run's window would otherwise race to cut the
+# same version. Never cancel-in-progress: a canceled release can leave a tag
+# with no release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  fixtures:
+    needs: validate
+    uses: ./.github/workflows/fixtures.yml
+    permissions:
+      contents: write
+
+  # When go-semantic-release.yml's semver job fails here, major-tag is skipped
+  # and callers stay on the last release.
+  release:
+    needs: fixtures
+    uses: ./.github/workflows/go-semantic-release.yml
+    permissions:
+      contents: write
+
+  major-tag:
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v${{ needs.release.outputs.version }}
+
+      - name: Move the major tag to this release
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          major="v${VERSION%%.*}"
+          git tag --force "$major"
+          git push --force origin "refs/tags/${major}"
