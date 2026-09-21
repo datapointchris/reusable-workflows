@@ -84,7 +84,7 @@ Its options:
   Until the proxy has it, `go install <module>@latest` installs the previous
   version and exits 0.
 - `allow-initial-development-versions` keeps a 0.x version on 0.x. Without it,
-  the next change of any kind cuts 1.0.0.
+  the next `fix:` or `feat:` cuts 1.0.0.
 
 ## What the caller keeps
 
@@ -99,14 +99,18 @@ The called jobs run on the caller's runners, against the caller's checkout.
   from being released.
 - **The runner.** `runs-on` takes JSON, so a private repository can name a
   self-hosted pool: `runs-on: '["self-hosted","linux"]'`. It defaults to
-  `ubuntu-latest`.
+  `ubuntu-latest`. `go-semantic-release.yml` needs a Linux x64 runner.
 
 ## Versions
 
 Pin `@v1`. `v1` moves to every 1.x.y release. A change that would break a
 caller is released as 2.0.0 and moves `v2`, and `v1` stays where it was.
 
-Each release first runs both workflows against the projects under
-`tests/fixtures`. The Python workflow computes a release without writing one,
-and the Go workflow builds a goreleaser snapshot. The major tag moves only once
-both pass.
+Every push runs both workflows against the projects under `tests/fixtures`: on
+a branch before it merges, and on `main` before the major tag moves. The Python
+workflow computes a release without writing one, and the Go workflow builds a
+goreleaser snapshot.
+
+The tools inside are pinned too: semantic-release and its plugins, goreleaser,
+and python-semantic-release through its action's commit. A new version of any
+of them reaches callers only through a release here.
