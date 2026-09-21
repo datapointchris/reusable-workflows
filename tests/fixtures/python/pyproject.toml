@@ -1,8 +1,9 @@
-# A project python-semantic-release can version, so the release workflow can
-# dry-run python-semantic-release.yml before it moves the major tag.
+# fixtures.yml runs python-semantic-release.yml against this project in noop
+# mode on every push.
 #
-# Its own tag_format keeps it off this repository's vX.Y.Z tags. The dry run
-# then always computes a first release, and never reads a real one.
+# tag_format keeps the project off this repository's vX.Y.Z tags, so the noop
+# run always computes a first release and never reads a real one. The `any`
+# release group matches every branch, so the run works before a change merges.
 
 [project]
 name = "fixture"
@@ -10,5 +11,7 @@ version = "0.0.0"
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-branch = "main"
 tag_format = "fixture-v{version}"
+
+[tool.semantic_release.branches.any]
+match = ".*"

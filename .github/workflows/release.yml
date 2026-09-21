@@ -18,47 +18,16 @@ jobs:
   validate:
     uses: ./.github/workflows/validate.yml
 
-  # Callers pin the major tag, so each workflow runs here against a fixture
-  # before the tag moves. A workflow that fails here never reaches a caller.
-  python-noop:
+  fixtures:
     needs: validate
-    uses: ./.github/workflows/python-semantic-release.yml
+    uses: ./.github/workflows/fixtures.yml
     permissions:
       contents: write
-    with:
-      directory: tests/fixtures/python
-      noop: true
 
-  # The fixture has no tag in its own tag_format, so the noop run always finds a
-  # first release. Empty outputs mean the step outputs never reached the
-  # workflow outputs a publish job reads.
-  python-noop-outputs:
-    needs: python-noop
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check the fixture's first release reached the workflow outputs
-        env:
-          RELEASED: ${{ needs.python-noop.outputs.released }}
-          TAG: ${{ needs.python-noop.outputs.tag }}
-        run: |
-          if [ "$RELEASED" != true ] || [[ "$TAG" != fixture-v* ]]; then
-            echo "::error::released='${RELEASED}' tag='${TAG}', where a first fixture-v release was expected"
-            exit 1
-          fi
-
-  goreleaser-snapshot:
-    needs: validate
-    uses: ./.github/workflows/go-semantic-release.yml
-    permissions:
-      contents: write
-    with:
-      goreleaser: true
-      directory: tests/fixtures/go
-      dry: true
-
-  # This repository's own release runs through the workflow it ships.
+  # When go-semantic-release.yml's semver job fails here, major-tag is skipped
+  # and callers stay on the last release.
   release:
-    needs: [python-noop-outputs, goreleaser-snapshot]
+    needs: fixtures
     uses: ./.github/workflows/go-semantic-release.yml
     permissions:
       contents: write

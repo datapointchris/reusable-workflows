@@ -1,9 +1,8 @@
 name: python-semantic-release
 
-# Versions a Python project from its conventional commits. python-semantic-release
-# writes the version into pyproject.toml, commits it, tags, and creates the
-# GitHub release. It reads everything else from the caller's
-# [tool.semantic_release] table.
+# python-semantic-release takes everything but these inputs from the caller's
+# [tool.semantic_release] table: where the version is written, the build
+# command, and the release commit's message.
 
 on:
   workflow_call:

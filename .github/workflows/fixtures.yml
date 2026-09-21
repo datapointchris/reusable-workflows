@@ -1,0 +1,50 @@
+name: Fixtures
+
+# release.yml calls this workflow on main, before cutting a version, so the push
+# trigger skips main.
+#
+# A push trigger rather than pull_request, because python-semantic-release
+# refuses the detached HEAD a pull request's merge checkout leaves.
+
+on:
+  push:
+    branches-ignore: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  python-noop:
+    uses: ./.github/workflows/python-semantic-release.yml
+    permissions:
+      contents: write
+    with:
+      directory: tests/fixtures/python
+      noop: true
+
+  # The fixture always computes a first fixture-v release, for the reasons its
+  # pyproject.toml gives. Empty outputs mean python-semantic-release.yml's step
+  # outputs never reached the workflow outputs a publish job reads.
+  python-noop-outputs:
+    needs: python-noop
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the fixture's first release reached the workflow outputs
+        env:
+          RELEASED: ${{ needs.python-noop.outputs.released }}
+          TAG: ${{ needs.python-noop.outputs.tag }}
+        run: |
+          if [ "$RELEASED" != true ] || [[ "$TAG" != fixture-v* ]]; then
+            echo "::error::released='${RELEASED}' tag='${TAG}', where a first fixture-v release was expected"
+            exit 1
+          fi
+
+  goreleaser-snapshot:
+    uses: ./.github/workflows/go-semantic-release.yml
+    permissions:
+      contents: write
+    with:
+      goreleaser: true
+      directory: tests/fixtures/go
+      dry: true
