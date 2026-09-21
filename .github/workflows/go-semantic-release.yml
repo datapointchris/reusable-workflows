@@ -94,6 +94,11 @@ jobs:
       # No changelog-file: the GitHub release body is the changelog. Each
       # `--<plugin> name@version` flag replaces only the plugin name a caller's
       # .semrelrc gives. The .semrelrc's options still apply.
+      #
+      # The ci-condition is `github`, never `default`. `default` is a separate
+      # plugin that reports the branch name as the commit, and the provider then
+      # tags the branch's tip when the release is created. A push landing during
+      # the run would be released without passing the caller's gate.
       - uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
         id: semrel
         with:
@@ -102,7 +107,7 @@ jobs:
           custom-arguments: >-
             --provider github@1.19.0
             --commit-analyzer default@1.15.0
-            --ci-condition default@1.11.0
+            --ci-condition github@1.11.0
             --changelog-generator default@1.15.0
           allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
           dry: ${{ inputs.dry }}
