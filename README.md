@@ -28,11 +28,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
+  validate:
+    uses: ./.github/workflows/validate.yml
 
   release:
-    needs: ci
+    needs: validate
     uses: datapointchris/reusable-workflows/.github/workflows/python-semantic-release.yml@v1
     permissions:
       contents: write
@@ -68,7 +68,7 @@ calls it too.
 
 ```yaml
   release:
-    needs: ci
+    needs: validate
     uses: datapointchris/reusable-workflows/.github/workflows/go-semantic-release.yml@v1
     permissions:
       contents: write
