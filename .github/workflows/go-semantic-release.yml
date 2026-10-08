@@ -122,6 +122,10 @@ jobs:
       #
       # GitHub writes these notes, because the changelog generator's notes are
       # the body GitHub refused.
+      #
+      # GitHub marks a new full release Latest unless the request says not to,
+      # and a re-run can come after a newer release. So the release is Latest
+      # only when no full release tag outranks it.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.dry && steps.semrel.outputs.version == '' }}
@@ -147,9 +151,22 @@ jobs:
 
           core=${tag%%+*}
           prerelease=false
-          [[ $core == *-* ]] && prerelease=true
+          make_latest=false
+          if [[ $core == *-* ]]; then
+            prerelease=true
+          else
+            newest=$(git tag --list 'v*' |
+              awk '/^v[0-9]+\.[0-9]+\.[0-9]+(\+[0-9A-Za-z.-]+)?$/ { sub(/\+.*/, ""); print }' |
+              sort -V | tail -n 1)
+            if [ "$newest" = "$core" ]; then
+              make_latest=true
+            fi
+          fi
+
           jq -n --arg tag "$tag" --argjson prerelease "$prerelease" \
-            '{tag_name: $tag, name: $tag, prerelease: $prerelease, generate_release_notes: true}' |
+            --arg make_latest "$make_latest" \
+            '{tag_name: $tag, name: $tag, prerelease: $prerelease, make_latest: $make_latest,
+              generate_release_notes: true}' |
             curl -fsS -o /dev/null -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'Accept: application/vnd.github+json' --data @- "$releases"
           echo "::notice::created the release for ${tag}, which an earlier attempt pushed"

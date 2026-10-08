@@ -108,12 +108,17 @@ jobs:
       #
       # GitHub writes these notes, because python-semantic-release's notes are
       # the body GitHub refused.
+      #
+      # GitHub marks a new full release Latest unless the request says not to,
+      # and a re-run can come after a newer release. So the release is Latest
+      # only when no full release of the same tag format outranks it.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
           PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
         run: |
           [ -n "$TAG" ] || exit 0
@@ -132,8 +137,24 @@ jobs:
               ;;
           esac
 
+          make_latest=false
+          if [ "${PRERELEASE:-false}" != true ]; then
+            prefix=${TAG%%"$VERSION"*}
+            suffix=${TAG#*"$VERSION"}
+            newest=$(git tag --list | awk -v prefix="$prefix" -v suffix="$suffix" '
+              index($0, prefix) == 1 && substr($0, length($0) - length(suffix) + 1) == suffix {
+                version = substr($0, length(prefix) + 1, length($0) - length(prefix) - length(suffix))
+                if (version ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print version
+              }' | sort -V | tail -n 1)
+            if [ "$newest" = "$VERSION" ]; then
+              make_latest=true
+            fi
+          fi
+
           jq -n --arg tag "$TAG" --argjson prerelease "${PRERELEASE:-false}" \
-            '{tag_name: $tag, name: $tag, prerelease: $prerelease, generate_release_notes: true}' |
+            --arg make_latest "$make_latest" \
+            '{tag_name: $tag, name: $tag, prerelease: $prerelease, make_latest: $make_latest,
+              generate_release_notes: true}' |
             curl -fsS -o /dev/null -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'Accept: application/vnd.github+json' --data @- "$releases"
           echo "::notice::created the release for ${TAG}, which an earlier attempt pushed"

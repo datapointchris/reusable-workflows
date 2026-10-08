@@ -119,6 +119,9 @@ module proxy then run as they would have.
 A re-run acts only on a tag at or after the commit the run was started for. An
 older release's tag missing its release is left alone.
 
+A re-run can come after a newer release has been cut. The release it creates is
+then not marked Latest, and the newer release keeps that mark.
+
 ## Versions
 
 Pin `@v1`. `v1` moves to every 1.x.y release. A change that would break a
