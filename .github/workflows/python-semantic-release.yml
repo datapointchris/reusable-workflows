@@ -2,7 +2,8 @@ name: python-semantic-release
 
 # python-semantic-release takes everything but these inputs from the caller's
 # [tool.semantic_release] table: where the version is written, the build
-# command, and the release commit's message.
+# command, and the release commit's message. The config step adds defaults to
+# that table, and a key the caller sets wins.
 
 on:
   workflow_call:
@@ -25,7 +26,9 @@ on:
         default: false
     outputs:
       released:
-        description: '"true" when a version was cut.'
+        description: >-
+          "true" when a version was cut. Also "true" on a re-run that created
+          the GitHub release for the tag a failed attempt pushed.
         value: ${{ jobs.release.outputs.released }}
       version:
         description: The version cut, with no leading v.
@@ -40,7 +43,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      released: ${{ steps.release.outputs.released }}
+      released: ${{ steps.finish.outputs.released || steps.release.outputs.released }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
     steps:
@@ -48,12 +51,131 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The config step parses TOML with tomllib, which arrived in Python 3.11.
+      # A self-hosted runner may carry no Python at all. `uv run --python
+      # '>=3.11'` downloads one when the runner has none that recent.
+      - name: Download uv
+        id: uv
+        env:
+          VERSION: 0.12.18
+          SHA256_X86_64: 89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16
+          SHA256_AARCH64: afb6291f3f0a6b4521fc67b947822506c41dde5b60d2189dd8f3695b2ac8c9e7
+        run: |
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64) sha256=$SHA256_X86_64 ;;
+            aarch64) sha256=$SHA256_AARCH64 ;;
+            *)
+              echo "::error::no uv build is pinned for ${arch}"
+              exit 1
+              ;;
+          esac
+          name="uv-${arch}-unknown-linux-gnu"
+          archive="${RUNNER_TEMP}/${name}.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/astral-sh/uv/releases/download/${VERSION}/${name}.tar.gz"
+          echo "${sha256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "path=${RUNNER_TEMP}/${name}/uv" >> "$GITHUB_OUTPUT"
+
+      # A first release's notes list every commit since the repository began,
+      # with its body. GitHub refuses a release body over 125,000 characters.
+      # With mask_initial_release on, a first release's notes read "Initial
+      # Release" instead. python-semantic-release loads one config file, so
+      # this step writes the caller's whole table with the default added. Paths
+      # in the table resolve from the directory the action runs in, not from
+      # this file's.
+      - name: Default a first release's notes to one line
+        id: config
+        env:
+          UV: ${{ steps.uv.outputs.path }}
+          PYPROJECT: ${{ inputs.directory }}/pyproject.toml
+          CONFIG: ${{ runner.temp }}/semantic-release.json
+        run: |
+          "$UV" run --no-project --python '>=3.11' python - <<'EOF'
+          import json, os, tomllib
+
+          with open(os.environ["PYPROJECT"], "rb") as f:
+              table = tomllib.load(f).get("tool", {}).get("semantic_release", {})
+          templates = table.setdefault("changelog", {}).setdefault("default_templates", {})
+          templates.setdefault("mask_initial_release", True)
+          with open(os.environ["CONFIG"], "w") as f:
+              json.dump({"semantic_release": table}, f)
+          EOF
+
+      # The action's container mounts runner.temp at /github/runner_temp, so
+      # the config step's file is there.
       - uses: python-semantic-release/python-semantic-release@21ed7fa03e4a17ac49406eff4b60d5ad050fbdc2 # v9.21.2
         id: release
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           directory: ${{ inputs.directory }}
-          root_options: ${{ inputs.noop && '-v --noop' || '-v' }}
+          root_options: >-
+            -v -c /github/runner_temp/semantic-release.json
+            ${{ inputs.noop && '--noop' || '' }}
           # The GitHub release body is the changelog, built from the same
           # commits, so no CHANGELOG.md is written or tracked.
           changelog: "false"
+
+      # python-semantic-release pushes the tag, then creates the release. When
+      # creating the release fails, a re-run checks out this run's commit
+      # again. The tag sits on that commit or on the version commit after it.
+      # python-semantic-release then prints that the version "has already been
+      # released", exits 0, and sets its released output to false. So a tag at
+      # or after this run's commit with no release is that earlier attempt's,
+      # and this step creates its release. An older release's tag sits behind
+      # this commit, and is left alone.
+      #
+      # The notes come from GitHub's generate_release_notes, because
+      # python-semantic-release's notes are the body GitHub refused.
+      #
+      # GitHub marks a new full release Latest unless make_latest says not to.
+      # A re-run can come after a newer release, so make_latest is true only
+      # when no full release tag of the same format outranks this one.
+      - name: Create the release a failed attempt left without one
+        id: finish
+        if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+        run: |
+          [ -n "$TAG" ] || exit 0
+          git rev-parse --quiet --verify "refs/tags/${TAG}" >/dev/null || exit 0
+          git merge-base --is-ancestor "$GITHUB_SHA" "refs/tags/${TAG}" || exit 0
+
+          releases="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" "${releases}/tags/${TAG}")
+          case "$status" in
+            200) exit 0 ;;
+            404) ;;
+            *)
+              echo "::error::looking up the release for ${TAG} returned HTTP ${status}"
+              exit 1
+              ;;
+          esac
+
+          make_latest=false
+          if [ "${PRERELEASE:-false}" != true ]; then
+            prefix=${TAG%%"$VERSION"*}
+            suffix=${TAG#*"$VERSION"}
+            newest=$(git tag --list | awk -v prefix="$prefix" -v suffix="$suffix" '
+              index($0, prefix) == 1 && substr($0, length($0) - length(suffix) + 1) == suffix {
+                version = substr($0, length(prefix) + 1, length($0) - length(prefix) - length(suffix))
+                if (version ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print version
+              }' | sort -V | tail -n 1)
+            if [ "$newest" = "$VERSION" ]; then
+              make_latest=true
+            fi
+          fi
+
+          jq -n --arg tag "$TAG" --argjson prerelease "${PRERELEASE:-false}" \
+            --arg make_latest "$make_latest" \
+            '{tag_name: $tag, name: $tag, prerelease: $prerelease, make_latest: $make_latest,
+              generate_release_notes: true}' |
+            curl -fsS -o /dev/null -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' --data @- "$releases"
+          echo "::notice::created the release for ${TAG}, which an earlier attempt pushed"
+          echo "released=true" >>"$GITHUB_OUTPUT"
