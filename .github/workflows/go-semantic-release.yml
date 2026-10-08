@@ -120,8 +120,8 @@ jobs:
       # step creates its release. Its version then reaches the jobs below, so
       # goreleaser uploads to it.
       #
-      # GitHub writes these notes, not the changelog generator, so notes that
-      # GitHub refused once cannot be refused again.
+      # GitHub writes these notes, because the changelog generator's notes are
+      # the body GitHub refused.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.dry && steps.semrel.outputs.version == '' }}

@@ -2,8 +2,8 @@ name: python-semantic-release
 
 # python-semantic-release takes everything but these inputs from the caller's
 # [tool.semantic_release] table: where the version is written, the build
-# command, and the release commit's message. This workflow adds one default to
-# that table, mask_initial_release, which the caller's own setting overrides.
+# command, and the release commit's message. The config step adds defaults to
+# that table, and a key the caller sets wins.
 
 on:
   workflow_call:
@@ -106,8 +106,8 @@ jobs:
       # this step creates its release. An older release's tag sits behind this
       # commit, and is left alone.
       #
-      # GitHub writes these notes, not python-semantic-release, so notes that
-      # GitHub refused once cannot be refused again.
+      # GitHub writes these notes, because python-semantic-release's notes are
+      # the body GitHub refused.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}
