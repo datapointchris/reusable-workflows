@@ -8,7 +8,9 @@ README says what each one does and what a caller writes.
 
 - `.github/workflows/python-semantic-release.yml` and `go-semantic-release.yml`
   are the product. Each carries its inputs and outputs under `on.workflow_call`.
-- `.github/workflows/fixtures.yml` runs both against `tests/fixtures/`.
+- `.github/workflows/fixtures.yml` runs both against `tests/fixtures/`. On a
+  branch it also runs both `finish` steps against GitHub itself, through
+  `tests/finish-release-against-github.sh`, on scratch tags it deletes.
 - `tests/*.bats` run single steps of the workflows, extracted from the YAML by
   step id, against scratch repositories and `tests/github-api-stub.py`.
 - `.github/workflows/release.yml` releases this repository. It calls

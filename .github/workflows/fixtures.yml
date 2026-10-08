@@ -48,3 +48,22 @@ jobs:
       goreleaser: true
       directory: tests/fixtures/go
       dry: true
+
+  # noop and dry skip both finish steps, and the suite in tests/ answers them
+  # from a stub. Here they run against GitHub itself, on scratch tags this job
+  # deletes. Only on a branch, so main's release run writes nothing before it
+  # cuts a version.
+  finish-against-github:
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create and check a release through each finish step
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: tests/finish-release-against-github.sh
