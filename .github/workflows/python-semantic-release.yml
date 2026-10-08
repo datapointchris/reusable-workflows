@@ -26,7 +26,9 @@ on:
         default: false
     outputs:
       released:
-        description: '"true" when a version was cut.'
+        description: >-
+          "true" when a version was cut. Also "true" on a re-run that created
+          the GitHub release for the tag a failed attempt pushed.
         value: ${{ jobs.release.outputs.released }}
       version:
         description: The version cut, with no leading v.
@@ -41,7 +43,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      released: ${{ steps.release.outputs.released }}
+      released: ${{ steps.finish.outputs.released || steps.release.outputs.released }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
     steps:
@@ -95,3 +97,44 @@ jobs:
           # The GitHub release body is the changelog, built from the same
           # commits, so no CHANGELOG.md is written or tracked.
           changelog: "false"
+
+      # python-semantic-release pushes the tag, then creates the release. When
+      # the second fails, a re-run checks out this run's commit again, and the
+      # tag sits on it or on the version commit after it. The re-run computes
+      # the same version, finds its tag, and releases nothing. So a tag at or
+      # after this run's commit with no release is that earlier attempt's, and
+      # this step creates its release. An older release's tag sits behind this
+      # commit, and is left alone.
+      #
+      # GitHub writes these notes, not python-semantic-release, so notes that
+      # GitHub refused once cannot be refused again.
+      - name: Create the release a failed attempt left without one
+        id: finish
+        if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+        run: |
+          [ -n "$TAG" ] || exit 0
+          git rev-parse --quiet --verify "refs/tags/${TAG}" >/dev/null || exit 0
+          git merge-base --is-ancestor "$GITHUB_SHA" "refs/tags/${TAG}" || exit 0
+
+          releases="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" "${releases}/tags/${TAG}")
+          case "$status" in
+            200) exit 0 ;;
+            404) ;;
+            *)
+              echo "::error::looking up the release for ${TAG} returned HTTP ${status}"
+              exit 1
+              ;;
+          esac
+
+          jq -n --arg tag "$TAG" --argjson prerelease "${PRERELEASE:-false}" \
+            '{tag_name: $tag, name: $tag, prerelease: $prerelease, generate_release_notes: true}' |
+            curl -fsS -o /dev/null -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' --data @- "$releases"
+          echo "::notice::created the release for ${TAG}, which an earlier attempt pushed"
+          echo "released=true" >>"$GITHUB_OUTPUT"

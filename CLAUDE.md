@@ -9,8 +9,8 @@ README says what each one does and what a caller writes.
 - `.github/workflows/python-semantic-release.yml` and `go-semantic-release.yml`
   are the product. Each carries its inputs and outputs under `on.workflow_call`.
 - `.github/workflows/fixtures.yml` runs both against `tests/fixtures/`.
-- `tests/*.bats` run single steps of the workflows, extracted from the YAML by
-  step id.
+- `tests/*.bats` run single steps of the two workflows, extracted from the YAML
+  by step id, against scratch repositories and `tests/github-api-stub.py`.
 - `.github/workflows/release.yml` releases this repository. It calls
   `fixtures.yml`, then cuts a version through `go-semantic-release.yml` and
   moves the major tag.
@@ -90,6 +90,7 @@ any exit code from 60 to 69. That covers both "no release needed" and a run off
 the release branch. `goreleaser-snapshot` on a branch therefore proves the
 `semver` job runs, and says nothing about the version it would cut.
 
-`bats tests/` runs the `config` step, found by that id. The suite stands a `uv`
-shim in front of `python3`, because GitHub's runner image has no uv. Run it
-with git's repository variables unset, as the pre-commit hook does.
+`bats tests/` runs the `config` step and both `finish` steps, found by those
+ids. The suite stands a `uv` shim in front of `python3`, because GitHub's runner
+image has no uv. Run it with git's repository variables unset, as the
+pre-commit hook does.

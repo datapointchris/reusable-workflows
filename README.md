@@ -107,6 +107,18 @@ The called jobs run on the caller's runners, against the caller's checkout.
   self-hosted pool: `runs-on: '["self-hosted","linux"]'`. It defaults to
   `ubuntu-latest`. `go-semantic-release.yml` needs a Linux x64 runner.
 
+## A failed release is finished by re-running it
+
+Each tool pushes the tag before it creates the GitHub release. When creating
+the release fails, re-run the failed jobs. The re-run creates the release for
+that tag, with notes GitHub generates, and reports it as cut:
+`python-semantic-release.yml` sets `released` to `true`, and
+`go-semantic-release.yml` sets `version`. The publish job, goreleaser and the
+module proxy then run as they would have.
+
+A re-run acts only on a tag at or after the commit the run was started for. An
+older release's tag missing its release is left alone.
+
 ## Versions
 
 Pin `@v1`. `v1` moves to every 1.x.y release. A change that would break a

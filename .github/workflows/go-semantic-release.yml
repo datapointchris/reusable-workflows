@@ -49,7 +49,8 @@ on:
         description: >-
           The version cut, with no leading v. Empty when the commits since the
           last release call for none. Under dry, the version that would have
-          been cut.
+          been cut. On a re-run that created the GitHub release for the tag a
+          failed attempt pushed, that tag's version.
         value: ${{ jobs.semver.outputs.version }}
 
 jobs:
@@ -58,7 +59,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.semrel.outputs.version }}
+      version: ${{ steps.semrel.outputs.version || steps.finish.outputs.version }}
     steps:
       # go-semantic-release cuts the root's vX.Y.Z tag. A module in a
       # subdirectory resolves only from a <dir>/vX.Y.Z tag, so the proxy can
@@ -111,6 +112,48 @@ jobs:
             --changelog-generator default@1.15.0
           allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
           dry: ${{ inputs.dry }}
+
+      # provider-github creates the tag, then the release. When the second
+      # fails, a re-run finds the tag at this run's commit, sees no commits
+      # since it, and cuts nothing. So with no version cut, a vX.Y.Z tag at
+      # this very commit with no release is that earlier attempt's, and this
+      # step creates its release. Its version then reaches the jobs below, so
+      # goreleaser uploads to it.
+      #
+      # GitHub writes these notes, not the changelog generator, so notes that
+      # GitHub refused once cannot be refused again.
+      - name: Create the release a failed attempt left without one
+        id: finish
+        if: ${{ !inputs.dry && steps.semrel.outputs.version == '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=$(git tag --points-at "$GITHUB_SHA" --list 'v*' |
+            awk '/^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/' |
+            sort -V | tail -n 1)
+          [ -n "$tag" ] || exit 0
+
+          releases="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
+          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" "${releases}/tags/${tag}")
+          case "$status" in
+            200) exit 0 ;;
+            404) ;;
+            *)
+              echo "::error::looking up the release for ${tag} returned HTTP ${status}"
+              exit 1
+              ;;
+          esac
+
+          core=${tag%%+*}
+          prerelease=false
+          [[ $core == *-* ]] && prerelease=true
+          jq -n --arg tag "$tag" --argjson prerelease "$prerelease" \
+            '{tag_name: $tag, name: $tag, prerelease: $prerelease, generate_release_notes: true}' |
+            curl -fsS -o /dev/null -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' --data @- "$releases"
+          echo "::notice::created the release for ${tag}, which an earlier attempt pushed"
+          echo "version=${tag#v}" >>"$GITHUB_OUTPUT"
 
   # module-proxy is its own job, so a failed fetch leaves goreleaser running.
   # The run still goes red, and re-running the failed job retries the fetch.

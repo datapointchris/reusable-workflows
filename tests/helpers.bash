@@ -36,6 +36,28 @@ run_step() {
   bash --noprofile --norc -eo pipefail "$script"
 }
 
+# Commits with no change, under a fixed identity, and echoes the commit.
+#
+# Usage: commit <repository> <message>
+commit() {
+  git -C "$1" -c user.email=test@example.invalid -c user.name=Test \
+    -c commit.gpgsign=false commit --quiet --allow-empty -m "$2"
+  git -C "$1" rev-parse HEAD
+}
+
+# Tags a commit the way each tool does: python-semantic-release annotates its
+# tags, and provider-github creates a lightweight ref.
+#
+# Usage: annotated_tag <repository> <tag> <commit>
+#        lightweight_tag <repository> <tag> <commit>
+annotated_tag() {
+  git -C "$1" -c user.email=test@example.invalid -c user.name=Test \
+    -c tag.gpgsign=false tag -a "$2" -m "$2" "$3"
+}
+lightweight_tag() {
+  git -C "$1" tag "$2" "$3"
+}
+
 # Puts a `uv` on PATH that runs `uv run [options] python <args>` as
 # `python3 <args>`. GitHub's runner image carries no uv, and finding a Python is
 # uv's part, which fixtures.yml exercises by running the workflow itself.
@@ -52,4 +74,30 @@ exec python3 "$@"
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/uv"
   PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+}
+
+# Starts tests/github-api-stub.py and points GITHUB_API_URL at it. API_STATE is
+# the directory it answers from and records into.
+start_api_stub() {
+  API_STATE="$BATS_TEST_TMPDIR/api"
+  mkdir -p "$API_STATE/releases"
+  python3 "$BATS_TEST_DIRNAME/github-api-stub.py" "$API_STATE" 3>&- &
+  API_PID=$!
+  local waited=0 port
+  until [ -s "$API_STATE/port" ]; do
+    if [ "$waited" -ge 50 ]; then
+      echo "the API stub did not start" >&2
+      return 1
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  port=$(cat "$API_STATE/port")
+  export GITHUB_API_URL="http://127.0.0.1:$port"
+}
+
+stop_api_stub() {
+  if [ -n "${API_PID:-}" ]; then
+    kill "$API_PID" 2>/dev/null || true
+  fi
 }
