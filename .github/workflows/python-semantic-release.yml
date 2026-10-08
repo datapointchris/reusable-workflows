@@ -2,7 +2,8 @@ name: python-semantic-release
 
 # python-semantic-release takes everything but these inputs from the caller's
 # [tool.semantic_release] table: where the version is written, the build
-# command, and the release commit's message.
+# command, and the release commit's message. This workflow adds one default to
+# that table, mask_initial_release, which the caller's own setting overrides.
 
 on:
   workflow_call:
@@ -48,12 +49,49 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The next step reads TOML, which Python's standard library does from
+      # 3.11. A self-hosted runner may carry no Python at all, and uv fetches
+      # one where the runner has none recent enough. Nothing is installed into
+      # the environment, so there is nothing to cache.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: 0.12.18
+          enable-cache: false
+
+      # A first release's notes list every commit since the repository began,
+      # with its body, and GitHub refuses a release body over 125,000
+      # characters. With mask_initial_release on, a first release's notes read
+      # "Initial Release" instead. python-semantic-release loads one config
+      # file, so this writes the caller's whole table with that default added,
+      # and the action loads it with -c. Every path in the table still resolves
+      # from the directory the action runs in.
+      - name: Default a first release's notes to one line
+        id: config
+        env:
+          PYPROJECT: ${{ inputs.directory }}/pyproject.toml
+          CONFIG: ${{ runner.temp }}/semantic-release.json
+        run: |
+          uv run --no-project --python '>=3.11' python - <<'EOF'
+          import json, os, tomllib
+
+          with open(os.environ["PYPROJECT"], "rb") as f:
+              table = tomllib.load(f).get("tool", {}).get("semantic_release", {})
+          templates = table.setdefault("changelog", {}).setdefault("default_templates", {})
+          templates.setdefault("mask_initial_release", True)
+          with open(os.environ["CONFIG"], "w") as f:
+              json.dump({"semantic_release": table}, f)
+          EOF
+
+      # The action's container sees the runner's temp directory at
+      # /github/runner_temp, which is where the step above wrote the config.
       - uses: python-semantic-release/python-semantic-release@21ed7fa03e4a17ac49406eff4b60d5ad050fbdc2 # v9.21.2
         id: release
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           directory: ${{ inputs.directory }}
-          root_options: ${{ inputs.noop && '-v --noop' || '-v' }}
+          root_options: >-
+            -v -c /github/runner_temp/semantic-release.json
+            ${{ inputs.noop && '--noop' || '' }}
           # The GitHub release body is the changelog, built from the same
           # commits, so no CHANGELOG.md is written or tracked.
           changelog: "false"

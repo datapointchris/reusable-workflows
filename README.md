@@ -13,6 +13,12 @@ into `pyproject.toml`, commits it, tags, and creates the GitHub release. The
 release body is the changelog. Everything else comes from the caller's
 `[tool.semantic_release]` table.
 
+A first release's notes read "Initial Release". Otherwise they would list every
+commit in the history with its body, and GitHub refuses a release body over
+125,000 characters. A caller wanting the full list sets
+`mask_initial_release = false` under
+`[tool.semantic_release.changelog.default_templates]`.
+
 ```yaml
 name: Release
 
@@ -112,5 +118,5 @@ workflow computes a release without writing one, and the Go workflow builds a
 goreleaser snapshot.
 
 The tools inside are pinned too: semantic-release and its plugins, goreleaser,
-and python-semantic-release through its action's commit. A new version of any
-of them reaches callers only through a release here.
+uv, and python-semantic-release through its action's commit. A new version of
+any of them reaches callers only through a release here.
