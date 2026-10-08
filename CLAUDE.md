@@ -57,7 +57,7 @@ actions would otherwise fetch are pinned in the workflow:
 - semantic-release v2.31.0, downloaded by URL and checked against its sha256,
   and its four plugins by `name@version` in `custom-arguments`.
 - goreleaser by `version: v2.17.0`.
-- uv by setup-uv's `version` input.
+- uv 0.12.18, downloaded by URL and checked against each Linux build's sha256.
 
 A pin moves only in a commit here, and `fixtures.yml` runs the new version
 before any caller sees it.
@@ -90,6 +90,6 @@ any exit code from 60 to 69. That covers both "no release needed" and a run off
 the release branch. `goreleaser-snapshot` on a branch therefore proves the
 `semver` job runs, and says nothing about the version it would cut.
 
-The suite stands a `uv` shim in front of `python3`, because GitHub's runner
-image has no uv. Each suite clears git's repository variables in `setup()`, so
+The suite hands the `config` step a `uv` shim that runs `python3`, because
+GitHub's runner image has no uv. Each suite clears git's repository variables in `setup()`, so
 `bats tests/` runs the same from a hook in a linked worktree.

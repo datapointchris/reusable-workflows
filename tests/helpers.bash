@@ -58,9 +58,10 @@ lightweight_tag() {
   git -C "$1" tag "$2" "$3"
 }
 
-# Puts a `uv` on PATH that runs `uv run [options] python <args>` as
-# `python3 <args>`. GitHub's runner image carries no uv, and finding a Python is
-# uv's part, which fixtures.yml exercises by running the workflow itself.
+# Writes a `uv` that runs `uv run [options] python <args>` as `python3 <args>`,
+# and points UV at it. GitHub's runner image carries no uv, and finding a
+# Python is uv's part, which fixtures.yml exercises by running the workflow
+# itself.
 stub_uv() {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat >"$BATS_TEST_TMPDIR/bin/uv" <<'EOF'
@@ -73,7 +74,7 @@ shift
 exec python3 "$@"
 EOF
   chmod +x "$BATS_TEST_TMPDIR/bin/uv"
-  PATH="$BATS_TEST_TMPDIR/bin:$PATH"
+  export UV="$BATS_TEST_TMPDIR/bin/uv"
 }
 
 # Starts tests/github-api-stub.py and points GITHUB_API_URL at it. API_STATE is

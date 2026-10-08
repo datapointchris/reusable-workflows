@@ -53,12 +53,31 @@ jobs:
 
       # The next step reads TOML, which Python's standard library does from
       # 3.11. A self-hosted runner may carry no Python at all, and uv fetches
-      # one where the runner has none recent enough. Nothing is installed into
-      # the environment, so there is nothing to cache.
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: 0.12.18
-          enable-cache: false
+      # one where the runner has none recent enough. uv is pinned by version
+      # and by each Linux build's checksum.
+      - name: Download uv
+        id: uv
+        env:
+          VERSION: 0.12.18
+          SHA256_X86_64: 89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16
+          SHA256_AARCH64: afb6291f3f0a6b4521fc67b947822506c41dde5b60d2189dd8f3695b2ac8c9e7
+        run: |
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64) sha256=$SHA256_X86_64 ;;
+            aarch64) sha256=$SHA256_AARCH64 ;;
+            *)
+              echo "::error::no uv build is pinned for ${arch}"
+              exit 1
+              ;;
+          esac
+          name="uv-${arch}-unknown-linux-gnu"
+          archive="${RUNNER_TEMP}/${name}.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/astral-sh/uv/releases/download/${VERSION}/${name}.tar.gz"
+          echo "${sha256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "path=${RUNNER_TEMP}/${name}/uv" >> "$GITHUB_OUTPUT"
 
       # A first release's notes list every commit since the repository began,
       # with its body, and GitHub refuses a release body over 125,000
@@ -70,10 +89,11 @@ jobs:
       - name: Default a first release's notes to one line
         id: config
         env:
+          UV: ${{ steps.uv.outputs.path }}
           PYPROJECT: ${{ inputs.directory }}/pyproject.toml
           CONFIG: ${{ runner.temp }}/semantic-release.json
         run: |
-          uv run --no-project --python '>=3.11' python - <<'EOF'
+          "$UV" run --no-project --python '>=3.11' python - <<'EOF'
           import json, os, tomllib
 
           with open(os.environ["PYPROJECT"], "rb") as f:
