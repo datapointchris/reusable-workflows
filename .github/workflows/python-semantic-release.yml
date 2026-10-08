@@ -51,10 +51,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # The next step reads TOML, which Python's standard library does from
-      # 3.11. A self-hosted runner may carry no Python at all, and uv fetches
-      # one where the runner has none recent enough. uv is pinned by version
-      # and by each Linux build's checksum.
+      # The config step parses TOML with tomllib, which arrived in Python 3.11.
+      # A self-hosted runner may carry no Python at all. `uv run --python
+      # '>=3.11'` downloads one when the runner has none that recent.
       - name: Download uv
         id: uv
         env:
@@ -80,12 +79,12 @@ jobs:
           echo "path=${RUNNER_TEMP}/${name}/uv" >> "$GITHUB_OUTPUT"
 
       # A first release's notes list every commit since the repository began,
-      # with its body, and GitHub refuses a release body over 125,000
-      # characters. With mask_initial_release on, a first release's notes read
-      # "Initial Release" instead. python-semantic-release loads one config
-      # file, so this writes the caller's whole table with that default added,
-      # and the action loads it with -c. Every path in the table still resolves
-      # from the directory the action runs in.
+      # with its body. GitHub refuses a release body over 125,000 characters.
+      # With mask_initial_release on, a first release's notes read "Initial
+      # Release" instead. python-semantic-release loads one config file, so
+      # this step writes the caller's whole table with the default added. Paths
+      # in the table resolve from the directory the action runs in, not from
+      # this file's.
       - name: Default a first release's notes to one line
         id: config
         env:
@@ -104,8 +103,8 @@ jobs:
               json.dump({"semantic_release": table}, f)
           EOF
 
-      # The action's container sees the runner's temp directory at
-      # /github/runner_temp, which is where the step above wrote the config.
+      # The action's container mounts runner.temp at /github/runner_temp, so
+      # the config step's file is there.
       - uses: python-semantic-release/python-semantic-release@21ed7fa03e4a17ac49406eff4b60d5ad050fbdc2 # v9.21.2
         id: release
         with:
@@ -119,19 +118,20 @@ jobs:
           changelog: "false"
 
       # python-semantic-release pushes the tag, then creates the release. When
-      # the second fails, a re-run checks out this run's commit again, and the
-      # tag sits on it or on the version commit after it. The re-run computes
-      # the same version, finds its tag, and releases nothing. So a tag at or
-      # after this run's commit with no release is that earlier attempt's, and
-      # this step creates its release. An older release's tag sits behind this
-      # commit, and is left alone.
+      # creating the release fails, a re-run checks out this run's commit
+      # again. The tag sits on that commit or on the version commit after it.
+      # python-semantic-release then prints that the version "has already been
+      # released", exits 0, and sets its released output to false. So a tag at
+      # or after this run's commit with no release is that earlier attempt's,
+      # and this step creates its release. An older release's tag sits behind
+      # this commit, and is left alone.
       #
-      # GitHub writes these notes, because python-semantic-release's notes are
-      # the body GitHub refused.
+      # The notes come from GitHub's generate_release_notes, because
+      # python-semantic-release's notes are the body GitHub refused.
       #
-      # GitHub marks a new full release Latest unless the request says not to,
-      # and a re-run can come after a newer release. So the release is Latest
-      # only when no full release of the same tag format outranks it.
+      # GitHub marks a new full release Latest unless make_latest says not to.
+      # A re-run can come after a newer release, so make_latest is true only
+      # when no full release tag of the same format outranks this one.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}

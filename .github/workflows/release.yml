@@ -45,9 +45,9 @@ jobs:
           fetch-depth: 0
 
       # A re-run that finishes an older release's failed attempt reports that
-      # release's version. Moving the major tag onto it would take every caller
-      # back, so the tag moves only to the highest release in its major.
-      - name: Move the major tag to this release
+      # release's version. Moving the major tag onto it would hand every caller
+      # pinned to that major the older release's workflows.
+      - name: Move the major tag to this release if it is the newest
         id: move
         env:
           VERSION: ${{ needs.release.outputs.version }}

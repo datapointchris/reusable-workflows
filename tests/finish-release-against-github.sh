@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Runs both workflows' `finish` steps against GitHub itself, on scratch tags at
-# this run's commit, and checks the releases they create. fixtures.yml runs it
-# on a branch push, with GH_TOKEN granted contents: write. Every release and tag
-# it makes is deleted on exit.
+# this run's commit. It then checks the releases they created. fixtures.yml runs
+# it on a branch push, with GH_TOKEN granted contents: write. Every release and
+# tag it makes is deleted on exit.
 set -euo pipefail
 
 workflows="$(cd "$(dirname "$0")/.." && pwd)/.github/workflows"
 work=$(mktemp -d)
 api="repos/${GITHUB_REPOSITORY}"
 
-# Both tags sort below every 1.x release, and neither matches the Python
-# fixture's tag_format, so no other job in the run sees a release to cut.
+# Both tags sort below every 1.x release, so the full release the Go step
+# creates is not marked Latest. Neither matches the Python fixture's tag_format,
+# so python-noop still computes that fixture's first release.
 python_version="0.${GITHUB_RUN_ATTEMPT}.${GITHUB_RUN_ID}-rc.1"
 python_tag="scratch-v${python_version}"
 go_tag="v0.${GITHUB_RUN_ATTEMPT}.${GITHUB_RUN_ID}"
@@ -87,9 +88,10 @@ expect "the Latest release after both steps" "$(latest)" "$latest_before"
 run_step "$go_finish" "$work/go-again-output"
 expect "a second Go run's output, once the release exists" "$(cat "$work/go-again-output")" ""
 
-# goreleaser, uploading to a release that exists, edits it twice. Neither edit
-# carries make_latest unless the caller's .goreleaser.yaml sets one, so these
-# are the requests a re-run's goreleaser job sends.
+# When the release exists, goreleaser v2.17.0 edits it twice: once with its
+# notes, and once to publish it. Neither edit carries make_latest unless the
+# caller's .goreleaser.yaml sets one. These two are the requests a re-run's
+# goreleaser job sends.
 id=$(release_field "$go_tag" id)
 gh api --method PATCH "${api}/releases/${id}" -f name="$go_tag" -f tag_name="$go_tag" \
   -F draft=false -F prerelease=false -f body="Scratch release notes." >/dev/null

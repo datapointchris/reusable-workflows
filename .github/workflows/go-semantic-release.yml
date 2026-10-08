@@ -113,19 +113,19 @@ jobs:
           allow-initial-development-versions: ${{ inputs.allow-initial-development-versions }}
           dry: ${{ inputs.dry }}
 
-      # provider-github creates the tag, then the release. When the second
-      # fails, a re-run finds the tag at this run's commit, sees no commits
-      # since it, and cuts nothing. So with no version cut, a vX.Y.Z tag at
-      # this very commit with no release is that earlier attempt's, and this
-      # step creates its release. Its version then reaches the jobs below, so
-      # goreleaser uploads to it.
+      # provider-github creates the tag, then the release. When creating the
+      # release fails, a re-run finds the tag at this run's commit.
+      # semantic-release then exits 65 with "no change", and the action returns
+      # no version. So a vX.Y.Z tag at this commit with no release is that
+      # earlier attempt's, and this step creates its release. Its version goes
+      # to the version output, so goreleaser and module-proxy run against it.
       #
-      # GitHub writes these notes, because the changelog generator's notes are
-      # the body GitHub refused.
+      # The notes come from GitHub's generate_release_notes, because the
+      # changelog generator's notes are the body GitHub refused.
       #
-      # GitHub marks a new full release Latest unless the request says not to,
-      # and a re-run can come after a newer release. So the release is Latest
-      # only when no full release tag outranks it.
+      # GitHub marks a new full release Latest unless make_latest says not to.
+      # A re-run can come after a newer release, so make_latest is true only
+      # when no full release tag outranks this one.
       - name: Create the release a failed attempt left without one
         id: finish
         if: ${{ !inputs.dry && steps.semrel.outputs.version == '' }}

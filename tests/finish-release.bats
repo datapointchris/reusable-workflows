@@ -1,11 +1,9 @@
 #!/usr/bin/env bats
-# The `finish` step of each workflow: on a run that cut no version, it creates
-# the GitHub release for a tag an earlier attempt of this run pushed, and leaves
-# every other tag alone. The release is Latest only when no newer full release
-# exists.
+# Each workflow's `finish` step, against tests/github-api-stub.py.
 #
 # The repository has two commits. FIRST is an earlier push, and SECOND is the
-# one after it. Each test names the commit the run was started for.
+# one after it. Each test names the commit the run was started for. A test that
+# needs a newer release adds a third commit for it.
 
 load "$HOME/.local/lib/bats-support/load.bash"
 load "$HOME/.local/lib/bats-assert/load.bash"
@@ -82,7 +80,7 @@ POST /repos/owner/demo/releases Bearer test-token"
 }
 
 @test "python: a prerelease tag on the run's own commit is created as a prerelease" {
-  # With no version file to change, there is no version commit, and the tag
+  # With no version file to change, there is no version commit. The tag then
   # sits on the commit the run was started for.
   annotated_tag "$REPO" v1.0.0-rc.1 "$SECOND"
   run python_finish "$SECOND" v1.0.0-rc.1 1.0.0-rc.1 true
@@ -166,8 +164,8 @@ POST /repos/owner/demo/releases Bearer test-token"
 }
 
 @test "go: a major tag on the run's commit is no release tag, and nothing is asked" {
-  # release.yml moves v1 onto each release commit, and the release's own tag
-  # sits behind the commit this run was started for.
+  # v1 carries the v prefix and has no release of its own. Picked as the tag,
+  # it would get a release named v1.
   lightweight_tag "$REPO" v1.1.0 "$FIRST"
   lightweight_tag "$REPO" v1 "$SECOND"
   run go_finish "$SECOND"

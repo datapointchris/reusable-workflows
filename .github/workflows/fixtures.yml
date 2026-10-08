@@ -49,10 +49,10 @@ jobs:
       directory: tests/fixtures/go
       dry: true
 
-  # noop and dry skip both finish steps, and the suite in tests/ answers them
-  # from a stub. Here they run against GitHub itself, on scratch tags this job
-  # deletes. Only on a branch, so main's release run writes nothing before it
-  # cuts a version.
+  # noop and dry skip both finish steps. The bats suite answers their requests
+  # from a stub that accepts any body. This job sends them to GitHub itself, on
+  # scratch tags it deletes on exit. It runs only on a branch, so main's release
+  # run writes nothing before it cuts a version.
   finish-against-github:
     if: github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The two GitHub release endpoints the recovery steps call, served from a directory.
+"""The two GitHub release endpoints the `finish` steps call, served from a directory.
 
 A lookup of releases/tags/<tag> answers 200 when <state>/releases/<tag> exists,
 and 404 otherwise. <state>/lookup-status, when present, overrides every lookup's

@@ -14,8 +14,8 @@ release body is the changelog. Everything else comes from the caller's
 `[tool.semantic_release]` table.
 
 A first release's notes read "Initial Release". Otherwise they would list every
-commit in the history with its body, and GitHub refuses a release body over
-125,000 characters. A caller wanting the full list sets
+commit in the history with its body. GitHub refuses a release body over 125,000
+characters. A caller wanting the full list sets
 `mask_initial_release = false` under
 `[tool.semantic_release.changelog.default_templates]`.
 

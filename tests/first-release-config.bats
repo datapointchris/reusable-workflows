@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
-# python-semantic-release.yml's `config` step: the caller's
-# [tool.semantic_release] table, written as the JSON config the action loads,
-# with mask_initial_release defaulted to true.
+# python-semantic-release.yml's `config` step. It writes the caller's
+# [tool.semantic_release] table as the JSON config the action loads, with
+# mask_initial_release defaulted to true.
 
 load "$HOME/.local/lib/bats-support/load.bash"
 load "$HOME/.local/lib/bats-assert/load.bash"

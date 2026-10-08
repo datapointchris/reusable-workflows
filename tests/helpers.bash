@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Shared helpers. Loaded by every suite.
 
 WORKFLOWS="$BATS_TEST_DIRNAME/../.github/workflows"
 
 # A commit from a linked worktree exports GIT_DIR and GIT_INDEX_FILE into each
-# hook, and GIT_DIR outranks `git -C`. Without this, a test's scratch
-# repository is built inside the repository being committed.
+# hook. GIT_DIR outranks `git -C`, so without this every `git init` and commit
+# in a test lands in the repository being committed.
 clear_git_environment() {
   local name
   while read -r name; do
@@ -27,7 +26,8 @@ step_script() {
   echo "$path"
 }
 
-# Runs a step's script with the shell GitHub runs a bash step with.
+# Runs a step's script under the flags GitHub gives a bash step, so a failing
+# command or pipe stage stops it here as it would in a run.
 #
 # Usage: run_step <workflow file> <job> <step id>
 run_step() {
@@ -36,8 +36,6 @@ run_step() {
   bash --noprofile --norc -eo pipefail "$script"
 }
 
-# Commits with no change, under a fixed identity, and echoes the commit.
-#
 # Usage: commit <repository> <message>
 commit() {
   git -C "$1" -c user.email=test@example.invalid -c user.name=Test \
@@ -59,9 +57,8 @@ lightweight_tag() {
 }
 
 # Writes a `uv` that runs `uv run [options] python <args>` as `python3 <args>`,
-# and points UV at it. GitHub's runner image carries no uv, and finding a
-# Python is uv's part, which fixtures.yml exercises by running the workflow
-# itself.
+# and points UV at it. GitHub's runner image carries no uv. Finding a Python is
+# uv's part, and fixtures.yml covers that by running the workflow on GitHub.
 stub_uv() {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat >"$BATS_TEST_TMPDIR/bin/uv" <<'EOF'

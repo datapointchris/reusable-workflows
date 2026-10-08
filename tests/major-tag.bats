@@ -1,6 +1,5 @@
 #!/usr/bin/env bats
-# release.yml's `move` step: the major tag follows the highest release in its
-# major, so a re-run that finishes an older release never takes callers back.
+# release.yml's `move` step.
 #
 # The repository has two commits, FIRST and SECOND, and a bare repository as
 # its origin. Each test checks out the release commit the job would.

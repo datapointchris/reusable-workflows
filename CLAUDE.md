@@ -92,6 +92,7 @@ any exit code from 60 to 69. That covers both "no release needed" and a run off
 the release branch. `goreleaser-snapshot` on a branch therefore proves the
 `semver` job runs, and says nothing about the version it would cut.
 
-The suite hands the `config` step a `uv` shim that runs `python3`, because
-GitHub's runner image has no uv. Each suite clears git's repository variables in `setup()`, so
-`bats tests/` runs the same from a hook in a linked worktree.
+`bats tests/` needs no preparation, from a shell or from the commit hook in a
+linked worktree. Each suite clears git's repository variables in `setup()`, and
+hands the `config` step a `uv` shim that runs `python3`. GitHub's runner image
+has no uv.
