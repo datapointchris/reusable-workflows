@@ -38,6 +38,10 @@ on their next run.
   called only from other private repositories.
 - **Caller-level `env` does not reach a called workflow.** Anything a workflow
   needs from the caller is an input.
+- **A change reaches callers only through a release.** A regeneration commits
+  as `chore(ci): …` and can rewrite a runner or a pin inside the two product
+  workflows. `.semrelrc` cuts a patch for `chore(ci)` as well as `fix`, so that
+  rewrite moves `v1` instead of waiting on main for the next fix.
 
 ## A step that writes to the remote is gated on the `tip` step
 
