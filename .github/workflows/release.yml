@@ -35,7 +35,7 @@ jobs:
   major-tag:
     needs: release
     if: needs.release.outputs.version != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

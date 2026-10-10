@@ -28,7 +28,7 @@ jobs:
   # outputs never reached the workflow outputs a publish job reads.
   python-noop-outputs:
     needs: python-noop
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Check the fixture's first release reached the workflow outputs
         env:
@@ -55,7 +55,7 @@ jobs:
   # run writes nothing before it cuts a version.
   finish-against-github:
     if: github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

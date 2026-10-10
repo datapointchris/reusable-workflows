@@ -10,10 +10,10 @@ on:
     inputs:
       runs-on:
         description: >-
-          The runner, as JSON: '"ubuntu-latest"', or '["self-hosted","<label>"]'
+          The runner, as JSON: '"ubuntu-26.04"', or '["self-hosted","<label>"]'
           for a pool.
         type: string
-        default: '"ubuntu-latest"'
+        default: '"ubuntu-26.04"'
       directory:
         description: The directory holding pyproject.toml, from the repository root.
         type: string

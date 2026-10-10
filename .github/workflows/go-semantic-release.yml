@@ -9,10 +9,10 @@ on:
     inputs:
       runs-on:
         description: >-
-          A Linux x64 runner, as JSON: '"ubuntu-latest"', or
+          A Linux x64 runner, as JSON: '"ubuntu-26.04"', or
           '["self-hosted","<label>"]' for a pool.
         type: string
-        default: '"ubuntu-latest"'
+        default: '"ubuntu-26.04"'
       allow-initial-development-versions:
         description: >-
           Keep a 0.x version on 0.x. Without it, the next fix: or feat: cuts
