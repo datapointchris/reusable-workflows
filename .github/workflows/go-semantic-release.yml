@@ -48,8 +48,9 @@ on:
       version:
         description: >-
           The version cut, with no leading v. Empty when the commits since the
-          last release call for none. Under dry, the version that would have
-          been cut. On a re-run that created the GitHub release for the tag a
+          last release call for none, and when the branch has moved past this
+          run's commit. Under dry, the version that would have been cut. On a
+          re-run that created the GitHub release for the tag a
           failed attempt pushed, that tag's version.
         value: ${{ jobs.semver.outputs.version }}
 
@@ -92,6 +93,31 @@ jobs:
           chmod +x "$bin"
           echo "path=${bin}" >> "$GITHUB_OUTPUT"
 
+      # A push landing while this run waits on the caller's gate starts a run of
+      # its own. That run resolves from the same last release, so it releases
+      # this run's commits too. Tagging this older commit races it, and GitHub
+      # refuses GITHUB_TOKEN a tag behind a push that changed a workflow file.
+      # The token holds no workflows permission.
+      #
+      # A re-run that finds a release tag at this commit is finishing an earlier
+      # attempt, and no newer run creates that release, so it goes on. The tags
+      # say so where the run attempt cannot: a re-run after a failed gate is
+      # attempt 2 and still races.
+      - name: Leave the release to a newer push
+        id: tip
+        if: ${{ !inputs.dry }}
+        run: |
+          tip=$(git ls-remote origin "$GITHUB_REF")
+          tip=${tip%%[[:space:]]*}
+          if [ -z "$tip" ]; then
+            echo "::error::origin has no ${GITHUB_REF} to release from"
+            exit 1
+          fi
+          [ "$tip" != "$GITHUB_SHA" ] || exit 0
+          [ -z "$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*')" ] || exit 0
+          echo "::notice::${GITHUB_REF} is at ${tip}, past ${GITHUB_SHA}, so the run for a later push releases these commits"
+          echo "superseded=true" >>"$GITHUB_OUTPUT"
+
       # No changelog-file: the GitHub release body is the changelog. Each
       # `--<plugin> name@version` flag replaces only the plugin name a caller's
       # .semrelrc gives. The .semrelrc's options still apply.
@@ -102,6 +128,7 @@ jobs:
       # the run would be released without passing the caller's gate.
       - uses: go-semantic-release/action@2e9dc4247a6004f8377781bef4cb9dad273a741f # v1.24.1
         id: semrel
+        if: ${{ steps.tip.outputs.superseded != 'true' }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           bin: ${{ steps.semrel-bin.outputs.path }}
@@ -128,7 +155,7 @@ jobs:
       # when no full release tag outranks this one.
       - name: Create the release a failed attempt left without one
         id: finish
-        if: ${{ !inputs.dry && steps.semrel.outputs.version == '' }}
+        if: ${{ !inputs.dry && steps.tip.outputs.superseded != 'true' && steps.semrel.outputs.version == '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

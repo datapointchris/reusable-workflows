@@ -12,7 +12,8 @@ README says what each one does and what a caller writes.
   branch it also runs both `finish` steps against GitHub itself, through
   `tests/finish-release-against-github.sh`, on scratch tags it deletes.
 - `tests/*.bats` run single steps of the workflows, extracted from the YAML by
-  step id, against scratch repositories and `tests/github-api-stub.py`.
+  step id. They run against scratch repositories, a bare repository standing
+  in for `origin`, and `tests/github-api-stub.py`.
 - `.github/workflows/release.yml` releases this repository. It calls
   `fixtures.yml`, then cuts a version through `go-semantic-release.yml` and
   moves the major tag.
@@ -37,6 +38,20 @@ on their next run.
   called only from other private repositories.
 - **Caller-level `env` does not reach a called workflow.** Anything a workflow
   needs from the caller is an input.
+
+## A step that writes to the remote is gated on the `tip` step
+
+Each workflow's `tip` step reads the branch on `origin`. When the branch has
+moved past the run's commit, it sets `superseded`, and the release step and
+`finish` skip. The newer push's run releases the same commits. Releasing from
+the older commit races it: GitHub answers 403 to the tag, or refuses the
+version commit's push as non-fast-forward.
+
+A new step that pushes, tags or creates a release takes the same condition.
+
+A re-run finishing its own tag is not superseded. The step works that out from
+where the tags sit, never from `GITHUB_RUN_ATTEMPT`. A re-run after a failed
+gate is attempt 2 and still races.
 
 ## Never write the breaking-change trailer in a commit message
 

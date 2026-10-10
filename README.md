@@ -122,6 +122,32 @@ older release's tag missing its release is left alone.
 A re-run can come after a newer release has been cut. The release it creates is
 then not marked Latest, and the newer release keeps that mark.
 
+## A run the branch has moved past leaves the release to the newer push
+
+A push landing while a run waits on its gate starts a run of its own. That run
+resolves from the same last release, so it releases the older run's commits as
+well. The `concurrency` group does not stop the two overlapping. It queues the
+newer run, and the older one is already past the point of being queued.
+
+Releasing from the older commit fails. `go-semantic-release.yml` tags it through
+the API, and GitHub refuses `GITHUB_TOKEN` a tag behind a push that changed a
+workflow file. The token holds no `workflows` permission.
+`python-semantic-release.yml` pushes a version commit onto it, and the moved
+branch refuses that as non-fast-forward.
+
+So both workflows read the branch on `origin` before cutting anything. When it
+has moved past the run's commit, the run writes a notice and cuts nothing.
+`version` comes back empty and `released` comes back `false`, so goreleaser,
+the module proxy and a publish job skip.
+
+A re-run finishing a failed attempt goes on. That attempt's tag sits at the
+run's commit, or on the version commit it made directly on top. No newer run
+creates that release.
+
+A push landing in the seconds between the check and the tag still fails the
+run. When the newer run fails its gate, these commits wait for the next push
+that passes it.
+
 ## Versions
 
 Pin `@v1`. `v1` moves to every 1.x.y release. A change that would break a

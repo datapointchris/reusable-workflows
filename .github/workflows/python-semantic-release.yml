@@ -28,7 +28,8 @@ on:
       released:
         description: >-
           "true" when a version was cut. Also "true" on a re-run that created
-          the GitHub release for the tag a failed attempt pushed.
+          the GitHub release for the tag a failed attempt pushed. "false" when
+          the branch has moved past this run's commit.
         value: ${{ jobs.release.outputs.released }}
       version:
         description: The version cut, with no leading v.
@@ -43,7 +44,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      released: ${{ steps.finish.outputs.released || steps.release.outputs.released }}
+      released: ${{ steps.finish.outputs.released || steps.release.outputs.released || 'false' }}
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
     steps:
@@ -103,10 +104,45 @@ jobs:
               json.dump({"semantic_release": table}, f)
           EOF
 
+      # A push landing while this run waits on the caller's gate starts a run of
+      # its own. That run resolves from the same last release, so it releases
+      # this run's commits too. python-semantic-release commits the version onto
+      # this run's commit and pushes it, and the moved branch refuses that push
+      # as non-fast-forward.
+      #
+      # An earlier attempt of this run moves the branch itself. It tags this
+      # commit, or the version commit it made directly on top. A re-run that
+      # finds that tag is finishing the attempt, and no newer run creates that
+      # release, so it goes on. A newer run's tag sits on a commit made on top
+      # of the newer push, and does not hold this run. The tags say so where the
+      # run attempt cannot: a re-run after a failed gate is attempt 2 and still
+      # races.
+      - name: Leave the release to a newer push
+        id: tip
+        if: ${{ !inputs.noop }}
+        run: |
+          tip=$(git ls-remote origin "$GITHUB_REF")
+          tip=${tip%%[[:space:]]*}
+          if [ -z "$tip" ]; then
+            echo "::error::origin has no ${GITHUB_REF} to release from"
+            exit 1
+          fi
+          [ "$tip" != "$GITHUB_SHA" ] || exit 0
+          for tag in $(git tag --contains "$GITHUB_SHA"); do
+            tagged=$(git rev-parse "${tag}^{commit}")
+            if [ "$tagged" = "$GITHUB_SHA" ] ||
+              [ "$(git rev-parse --verify --quiet "${tagged}^")" = "$GITHUB_SHA" ]; then
+              exit 0
+            fi
+          done
+          echo "::notice::${GITHUB_REF} is at ${tip}, past ${GITHUB_SHA}, so the run for a later push releases these commits"
+          echo "superseded=true" >>"$GITHUB_OUTPUT"
+
       # The action's container mounts runner.temp at /github/runner_temp, so
       # the config step's file is there.
       - uses: python-semantic-release/python-semantic-release@21ed7fa03e4a17ac49406eff4b60d5ad050fbdc2 # v9.21.2
         id: release
+        if: ${{ steps.tip.outputs.superseded != 'true' }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           directory: ${{ inputs.directory }}
@@ -134,7 +170,7 @@ jobs:
       # when no full release tag of the same format outranks this one.
       - name: Create the release a failed attempt left without one
         id: finish
-        if: ${{ !inputs.noop && steps.release.outputs.released == 'false' }}
+        if: ${{ !inputs.noop && steps.tip.outputs.superseded != 'true' && steps.release.outputs.released == 'false' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag }}
