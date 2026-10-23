@@ -93,7 +93,7 @@ publish job therefore lives in the caller and reads `released` and `tag` from
 
 The workflows run only on GitHub. `fixtures.yml` runs on every push to a branch
 other than `main`, and `release.yml` runs it again on `main` before cutting a
-version. A pull request also runs `validate.yml`, whose actionlint checks each
+version. A pull request also runs `validate.yml`, whose jactionlint checks each
 local `uses:` call against the called workflow's inputs.
 
 Their tools run locally against the fixtures:
