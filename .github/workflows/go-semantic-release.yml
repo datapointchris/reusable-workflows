@@ -51,7 +51,8 @@ on:
           last release call for none, and when the branch has moved past this
           run's commit. Under dry, the version that would have been cut. On a
           re-run that created the GitHub release for the tag a
-          failed attempt pushed, that tag's version.
+          failed attempt pushed, that tag's version. Under goreleaser, also
+          on a re-run that found that release with no binaries.
         value: ${{ jobs.semver.outputs.version }}
 
 jobs:
@@ -153,11 +154,17 @@ jobs:
       # GitHub marks a new full release Latest unless make_latest says not to.
       # A re-run can come after a newer release, so make_latest is true only
       # when no full release tag outranks this one.
-      - name: Create the release a failed attempt left without one
+      #
+      # goreleaser uploads into the release once it exists. A goreleaser job
+      # that failed leaves the release with no assets. Under goreleaser, a
+      # release with none is unfinished, so its version goes to the output and
+      # goreleaser builds it again.
+      - name: Finish the release a failed attempt left without one or its binaries
         id: finish
         if: ${{ !inputs.dry && steps.tip.outputs.superseded != 'true' && steps.semrel.outputs.version == '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER: ${{ inputs.goreleaser }}
         run: |
           tag=$(git tag --points-at "$GITHUB_SHA" --list 'v*' |
             awk '/^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/' |
@@ -165,10 +172,17 @@ jobs:
           [ -n "$tag" ] || exit 0
 
           releases="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
-          status=$(curl -sS -o /dev/null -w '%{http_code}' \
+          release=$(mktemp)
+          status=$(curl -sS -o "$release" -w '%{http_code}' \
             -H "Authorization: Bearer ${GH_TOKEN}" "${releases}/tags/${tag}")
           case "$status" in
-            200) exit 0 ;;
+            200)
+              if [ "$GORELEASER" = true ] && [ "$(jq '.assets | length' "$release")" = 0 ]; then
+                echo "::notice::the release for ${tag} has no binaries, so goreleaser builds them"
+                echo "version=${tag#v}" >>"$GITHUB_OUTPUT"
+              fi
+              exit 0
+              ;;
             404) ;;
             *)
               echo "::error::looking up the release for ${tag} returned HTTP ${status}"

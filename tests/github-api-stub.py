@@ -2,7 +2,8 @@
 """The two GitHub release endpoints the `finish` steps call, served from a directory.
 
 A lookup of releases/tags/<tag> answers 200 when <state>/releases/<tag> exists,
-and 404 otherwise. <state>/lookup-status, when present, overrides every lookup's
+and 404 otherwise. The 200's body is that file, or {} when it is empty.
+<state>/lookup-status, when present, overrides every lookup's
 status. A POST to releases appends its body to <state>/created. Every request
 appends "METHOD PATH AUTHORIZATION" to <state>/requests. The port it bound is
 written to <state>/port once it is listening.
@@ -34,8 +35,8 @@ class Handler(BaseHTTPRequestHandler):
             self.answer(404)
         elif (STATE / "lookup-status").exists():
             self.answer(int((STATE / "lookup-status").read_text()))
-        elif (STATE / "releases" / tag).exists():
-            self.answer(200)
+        elif (release := STATE / "releases" / tag).exists():
+            self.answer(200, release.read_bytes() or b"{}")
         else:
             self.answer(404)
 

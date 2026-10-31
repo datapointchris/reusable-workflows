@@ -88,6 +88,10 @@ expect "the Latest release after both steps" "$(latest)" "$latest_before"
 run_step "$go_finish" "$work/go-again-output"
 expect "a second Go run's output, once the release exists" "$(cat "$work/go-again-output")" ""
 
+GORELEASER=true run_step "$go_finish" "$work/go-unbuilt-output"
+expect "a goreleaser caller's output, while the release has no binaries" \
+  "$(cat "$work/go-unbuilt-output")" "version=${go_tag#v}"
+
 # When the release exists, goreleaser v2.17.0 edits it twice: once with its
 # notes, and once to publish it. Neither edit carries make_latest unless the
 # caller's .goreleaser.yaml sets one. These two are the requests a re-run's

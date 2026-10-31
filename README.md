@@ -209,6 +209,12 @@ that tag, with notes GitHub generates, and reports it as cut:
 `go-semantic-release.yml` sets `version`. The publish job, goreleaser and the
 module proxy then run as they would have.
 
+goreleaser uploads its binaries after the release exists. Re-running a failed
+goreleaser job builds them from the version its earlier semver job reported. A
+whole re-run runs semver again, and finds the tag already released. Under
+`goreleaser: true`, a release with no assets is unfinished. So semver sets
+`version` to its tag's, and goreleaser builds it.
+
 A re-run acts only on a tag at or after the commit the run was started for. An
 older release's tag missing its release is left alone.
 

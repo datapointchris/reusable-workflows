@@ -175,14 +175,25 @@ POST /repos/owner/demo/releases Bearer test-token"
   assert [ ! -s "$GITHUB_OUTPUT" ]
 }
 
-@test "go: a tag whose release exists is left alone" {
+@test "go: a tag whose release has its binaries is left alone" {
   lightweight_tag "$REPO" v1.2.0 "$SECOND"
-  touch "$API_STATE/releases/v1.2.0"
-  run go_finish "$SECOND"
+  echo '{"assets": [{"name": "demo_1.2.0_linux_amd64.tar.gz"}]}' >"$API_STATE/releases/v1.2.0"
+  GORELEASER=true run go_finish "$SECOND"
   assert_success
 
   assert [ ! -e "$API_STATE/created" ]
   assert [ ! -s "$GITHUB_OUTPUT" ]
+}
+
+@test "go: under goreleaser, a release a failed attempt left with no binaries hands goreleaser its version" {
+  lightweight_tag "$REPO" v1.2.0 "$SECOND"
+  echo '{"assets": []}' >"$API_STATE/releases/v1.2.0"
+  GORELEASER=true run go_finish "$SECOND"
+  assert_success
+
+  assert [ ! -e "$API_STATE/created" ]
+  run cat "$GITHUB_OUTPUT"
+  assert_output "version=1.2.0"
 }
 
 @test "go: a lookup GitHub cannot answer fails the step and creates nothing" {
