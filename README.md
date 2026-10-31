@@ -127,11 +127,11 @@ characters. A caller wanting the full list sets `mask_initial_release = false`
 under `[tool.semantic_release.changelog.default_templates]`. A key the caller
 sets always wins over the workflow's default.
 
-The step that reads the table runs under a pinned uv. uv downloads Python 3.11
-or later when the runner has none, so a self-hosted runner needs no Python. uv
-is pinned for Linux on x86_64 and aarch64. Any other architecture fails the run
-with `no uv build is pinned`. python-semantic-release runs as a container
-action, so a self-hosted runner needs Docker.
+The step that reads the table and python-semantic-release both run under a
+pinned uv. uv downloads Python 3.11 or later when the runner has none, so a
+self-hosted runner needs no Python. It needs no Docker either. uv is pinned for
+Linux on x86_64 and aarch64. Any other architecture fails the run with `no uv
+build is pinned`.
 
 ## Publishing to PyPI stays in the caller, because Trusted Publishing cannot name a reusable workflow
 
@@ -259,7 +259,7 @@ goreleaser snapshot. On a branch, both finish steps also create a release on
 GitHub itself, on scratch tags the run deletes.
 
 The tools inside are pinned too: semantic-release and its plugins, goreleaser,
-uv, and python-semantic-release through its action's commit. Handed no binary,
+uv, and python-semantic-release by its version on PyPI. Handed no binary,
 the go-semantic-release action downloads the newest semantic-release on every
 run, and that binary downloads the newest plugins. Either would change how
 every caller's version is worked out, with no commit here. A version of any of

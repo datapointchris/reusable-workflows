@@ -79,6 +79,9 @@ actions would otherwise fetch are pinned in the workflow:
   and its four plugins by `name@version` in `custom-arguments`.
 - goreleaser by `version: v2.17.0`.
 - uv 0.12.18, downloaded by URL and checked against each Linux build's sha256.
+- python-semantic-release 9.21.2, by `--from python-semantic-release==9.21.2`
+  on the `uv tool run` line of the release step. Its dependencies resolve
+  fresh from PyPI on each run.
 
 A pin moves only in a commit here, and `fixtures.yml` runs the new version
 before any caller sees it.
