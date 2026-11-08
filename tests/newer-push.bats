@@ -58,26 +58,56 @@ assert_superseded() {
   assert_output "superseded=true"
 }
 
+# Pushes a commit that changes a workflow file, which GitHub refuses
+# GITHUB_TOKEN a tag behind. Prints the commit.
+push_workflow_change() {
+  mkdir -p "$REPO/.github/workflows"
+  echo "name: changed" >"$REPO/.github/workflows/changed.yml"
+  git -C "$REPO" add .github/workflows/changed.yml
+  commit "$REPO" "ci: change a workflow" >/dev/null
+  git -C "$REPO" push --quiet origin main
+  git -C "$REPO" rev-parse HEAD
+}
+
+# Usage: assert_go_superseded <origin's main>
+assert_go_superseded() {
+  assert_success
+  assert_output "::notice::refs/heads/main is at $1, past ${FIRST}, and a workflow file changed since or this commit is off the branch, so the run for a later push releases these commits"
+  run cat "$GITHUB_OUTPUT"
+  assert_output "superseded=true"
+}
+
 @test "go: a run at the branch tip releases" {
   run go_tip "$SECOND"
   assert_released_here
 }
 
-@test "go: a run the branch has moved past leaves the release to the newer push" {
+@test "go: a run the branch has moved past releases its own commit where no workflow changed" {
   run go_tip "$FIRST"
-  assert_superseded
+  assert_success
+  assert_output "::notice::refs/heads/main is at ${SECOND}, past ${FIRST}, with the same workflow files, so this run releases its own commit"
+  run cat "$GITHUB_OUTPUT"
+  assert_output ""
 }
 
-@test "go: a re-run finishing its own tag goes on after the branch moved" {
+@test "go: a run past a workflow change leaves the release to the newer push" {
+  third=$(push_workflow_change)
+  run go_tip "$FIRST"
+  assert_go_superseded "$third"
+}
+
+@test "go: a re-run finishing its own tag goes on after a workflow change" {
   lightweight_tag "$REPO" v0.1.0 "$FIRST"
+  push_workflow_change >/dev/null
   run go_tip "$FIRST"
   assert_released_here
 }
 
 @test "go: a tag naming no version does not hold the run" {
   lightweight_tag "$REPO" v1 "$FIRST"
+  third=$(push_workflow_change)
   run go_tip "$FIRST"
-  assert_superseded
+  assert_go_superseded "$third"
 }
 
 @test "go: a branch origin does not have fails the run" {

@@ -49,7 +49,7 @@ on:
         description: >-
           The version cut, with no leading v. Empty when the commits since the
           last release call for none, and when the branch has moved past this
-          run's commit. Under dry, the version that would have been cut. On a
+          run's commit and changed a workflow file since. Under dry, the version that would have been cut. On a
           re-run that created the GitHub release for the tag a
           failed attempt pushed, that tag's version. Under goreleaser, also
           on a re-run that found that release with no binaries.
@@ -95,16 +95,20 @@ jobs:
           echo "path=${bin}" >> "$GITHUB_OUTPUT"
 
       # A push landing while this run waits on the caller's gate starts a run of
-      # its own. That run resolves from the same last release, so it releases
-      # this run's commits too. Tagging this older commit races it, and GitHub
-      # refuses GITHUB_TOKEN a tag behind a push that changed a workflow file.
-      # The token holds no workflows permission.
+      # its own, and the caller's concurrency group holds it until this one
+      # ends. So this run releases its own commit, and the newer run resolves
+      # from that release. A watcher of this commit then finds it in a version.
+      #
+      # GitHub refuses GITHUB_TOKEN a tag at a commit whose workflow files
+      # differ from the branch's, because the token holds no workflows
+      # permission. Where a push since changed one, the newer run releases these
+      # commits instead, and so does it where this commit is off the branch.
       #
       # A re-run that finds a release tag at this commit is finishing an earlier
       # attempt, and no newer run creates that release, so it goes on. The tags
       # say so where the run attempt cannot: a re-run after a failed gate is
-      # attempt 2 and still races.
-      - name: Leave the release to a newer push
+      # attempt 2.
+      - name: Leave the release to a newer push where a workflow changed since
         id: tip
         if: ${{ !inputs.dry }}
         run: |
@@ -116,7 +120,13 @@ jobs:
           fi
           [ "$tip" != "$GITHUB_SHA" ] || exit 0
           [ -z "$(git tag --points-at "$GITHUB_SHA" --list 'v[0-9]*.[0-9]*.[0-9]*')" ] || exit 0
-          echo "::notice::${GITHUB_REF} is at ${tip}, past ${GITHUB_SHA}, so the run for a later push releases these commits"
+          git fetch --quiet --no-tags origin "$tip"
+          if git merge-base --is-ancestor "$GITHUB_SHA" "$tip" &&
+            git diff --quiet "$GITHUB_SHA" "$tip" -- .github/workflows; then
+            echo "::notice::${GITHUB_REF} is at ${tip}, past ${GITHUB_SHA}, with the same workflow files, so this run releases its own commit"
+            exit 0
+          fi
+          echo "::notice::${GITHUB_REF} is at ${tip}, past ${GITHUB_SHA}, and a workflow file changed since or this commit is off the branch, so the run for a later push releases these commits"
           echo "superseded=true" >>"$GITHUB_OUTPUT"
 
       # No changelog-file: the GitHub release body is the changelog. Each

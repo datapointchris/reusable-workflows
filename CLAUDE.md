@@ -45,17 +45,20 @@ on their next run.
 
 ## A step that writes to the remote is gated on the `tip` step
 
-Each workflow's `tip` step reads the branch on `origin`. When the branch has
-moved past the run's commit, it sets `superseded`, and the release step and
-`finish` skip. The newer push's run releases the same commits. Releasing from
-the older commit races it: GitHub answers 403 to the tag, or refuses the
-version commit's push as non-fast-forward.
+Each workflow's `tip` step reads the branch on `origin`, and where it sets
+`superseded`, the release step and `finish` skip. The newer push's run
+releases those commits. Python sets it whenever the branch has moved past the
+run's commit, because the moved branch refuses its version commit as
+non-fast-forward. Go sets it only where a workflow file changed since or the
+commit is off the branch, because GitHub answers 403 to a `GITHUB_TOKEN` tag at
+a commit whose workflow files differ from the branch's. Otherwise a Go run
+releases its own commit, so a watcher of that commit finds it in a version.
 
 A new step that pushes, tags or creates a release takes the same condition.
 
 A re-run finishing its own tag is not superseded. The step works that out from
 where the tags sit, never from `GITHUB_RUN_ATTEMPT`. A re-run after a failed
-gate is attempt 2 and still races.
+gate is attempt 2 with no tag of its own.
 
 ## Never write the breaking-change trailer in a commit message
 

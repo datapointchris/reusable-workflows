@@ -221,31 +221,35 @@ older release's tag missing its release is left alone.
 A re-run can come after a newer release has been cut. The release it creates is
 then not marked Latest, and the newer release keeps that mark.
 
-## A run the branch has moved past leaves the release to the newer push
+## A Go run the branch has moved past releases its own commit, unless a workflow changed since
 
-A push landing while a run waits on its gate starts a run of its own. That run
-resolves from the same last release, so it releases the older run's commits as
-well. The `concurrency` group does not stop the two overlapping. It queues the
-newer run, and the older one is already past the point of being queued.
+A push landing while a run waits on its gate starts a run of its own. The
+caller's workflow-level `concurrency` group holds that run pending until the
+older one ends, so two runs never cut a version at once.
 
-Releasing from the older commit fails. `go-semantic-release.yml` tags it
-through the API, and GitHub refuses `GITHUB_TOKEN` a tag behind a push that
-changed a workflow file. The token holds no `workflows` permission.
-`python-semantic-release.yml` fails on whichever run pushes second. GitHub
-answers 403 to its tag, or the moved branch refuses its version commit as
-non-fast-forward.
+`go-semantic-release.yml` tags the run's commit through the API. GitHub
+answers 403 to a `GITHUB_TOKEN` tag at a commit whose workflow files differ
+from the branch's, because the token holds no `workflows` permission. It takes
+one at a commit whose workflow files match. So the `tip` step compares the
+run's commit with the branch on `origin`. Where the files match, the run
+releases its own commit, and the newer run resolves from that release. Where a
+workflow file changed since, or the commit is off the branch, the run writes a
+notice and cuts nothing.
 
-So both workflows read the branch on `origin` before cutting anything. When it
-has moved past the run's commit, the run writes a notice and cuts nothing.
-`version` comes back empty and `released` comes back `false`, so goreleaser,
-the module proxy and a publish job skip.
+`python-semantic-release.yml` pushes a version commit on top of the run's
+commit, and the moved branch refuses it as non-fast-forward. So a Python run
+the branch has moved past always writes a notice and cuts nothing.
+
+A run that cuts nothing returns an empty `version` and `released` as `false`,
+so goreleaser, the module proxy and a publish job skip. The newer push's run
+releases its commits.
 
 A re-run finishing a failed attempt goes on. That attempt's tag sits at the
 run's commit, or on the version commit it made directly on top. No newer run
 creates that release.
 
 A push landing in the seconds between the check and the tag still fails the
-run. When the newer run fails its gate, these commits wait for the next push
+run, where it changes a workflow file or, for Python, at all. When the newer run fails its gate, these commits wait for the next push
 that passes it.
 
 ## Callers pin `@v1`, and a change reaches them only through a release
