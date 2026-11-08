@@ -88,7 +88,7 @@ jobs:
           SHA256: b8f518b1aeb1d1742f4e6e91a179b707cea4309a64fe3854f465bf724f04f6d3
         run: |
           bin="${RUNNER_TEMP}/semantic-release"
-          curl -fsSL -o "$bin" \
+          curl -fsSL --retry 5 --retry-delay 20 -o "$bin" \
             "https://github.com/go-semantic-release/semantic-release/releases/download/${VERSION}/semantic-release_${VERSION}_linux_amd64"
           echo "${SHA256}  ${bin}" | sha256sum -c -
           chmod +x "$bin"

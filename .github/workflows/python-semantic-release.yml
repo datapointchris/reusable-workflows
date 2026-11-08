@@ -74,7 +74,7 @@ jobs:
           esac
           name="uv-${arch}-unknown-linux-gnu"
           archive="${RUNNER_TEMP}/${name}.tar.gz"
-          curl -fsSL -o "$archive" \
+          curl -fsSL --retry 5 --retry-delay 20 -o "$archive" \
             "https://github.com/astral-sh/uv/releases/download/${VERSION}/${name}.tar.gz"
           echo "${sha256}  ${archive}" | sha256sum -c -
           tar -xzf "$archive" -C "$RUNNER_TEMP"
