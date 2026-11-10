@@ -57,8 +57,8 @@ lightweight_tag() {
 }
 
 # Writes a `uv` that runs `uv run [options] python <args>` as `python3 <args>`,
-# and points UV at it. GitHub's runner image carries no uv. Finding a Python is
-# uv's part, and fixtures.yml covers that by running the workflow on GitHub.
+# and points UV at it. Finding a Python is uv's part, and fixtures.yml covers
+# that by running the workflow on GitHub.
 stub_uv() {
   mkdir -p "$BATS_TEST_TMPDIR/bin"
   cat >"$BATS_TEST_TMPDIR/bin/uv" <<'EOF'

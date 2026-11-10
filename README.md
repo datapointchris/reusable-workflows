@@ -1,10 +1,13 @@
 # reusable-workflows
 
 The release job every repository needs, written once and called with `uses:`.
-Two workflows ship:
+Three workflows ship:
 
 - `python-semantic-release.yml` versions a Python project from its
   conventional commits. It tags the version and creates the GitHub release.
+- `python-publish.yml` builds that release at its tag and uploads it to a
+  package index that takes a username and password. A re-run skips the files
+  the index already holds.
 - `go-semantic-release.yml` tags a version from the conventional commits and
   creates the GitHub release. It reads no language, so a repository that ships
   only a tag calls it too. On request it builds Go binaries and primes the Go
@@ -72,7 +75,9 @@ none. The first `fix:` or `feat:` to reach main cuts one.
 | Ask | Surface | Reads |
 | --- | --- | --- |
 | What version does this Python project get next | `python-semantic-release.yml` | the caller's `[tool.semantic_release]` table |
-| How does the release reach PyPI | a `publish` job in the caller | `released` and `tag` from `python-semantic-release.yml` |
+| How does the release reach an index that takes a password | `python-publish.yml` | `released` and `tag` from `python-semantic-release.yml` |
+| How does the release reach PyPI through Trusted Publishing | a `publish` job in the caller | the same two outputs |
+| Why did a re-run of a half-finished upload pass | `python-publish.yml`'s `check-url` | the files the index already holds |
 | What version does this Go module, or tag-only repository, get next | `go-semantic-release.yml` | the caller's `.semrelrc`, when there is one |
 | Where are this release's binaries | `goreleaser: true` | `.goreleaser.yaml` in `directory` |
 | Why does `go install <module>@latest` install the last version | `prime-module-proxy: true` | `go.mod` at the repository root |
@@ -86,9 +91,10 @@ none. The first `fix:` or `feat:` to reach main cuts one.
 The called jobs run on the caller's runners, against the caller's checkout.
 
 - **`permissions: contents: write` on the calling job.** A called workflow can
-  only narrow the permissions its caller grants. Both workflows commit or tag.
-  Grant that scope and nothing else. A job asking for a scope the caller does
-  not grant fails before it starts.
+  only narrow the permissions its caller grants. Both release workflows commit
+  or tag. Grant that scope and nothing else. A job asking for a scope the
+  caller does not grant fails before it starts. `python-publish.yml` only reads
+  the repository, so its calling job grants nothing beyond `contents: read`.
 - **The `concurrency` group**, at the top of the calling workflow. There it
   covers the publish job beside the release as well.
 - **The gate.** `needs:` on the calling job is what keeps an untested commit
@@ -133,13 +139,45 @@ self-hosted runner needs no Python. It needs no Docker either. uv is pinned for
 Linux on x86_64 and aarch64. Any other architecture fails the run with `no uv
 build is pinned`.
 
-## Publishing to PyPI stays in the caller, because Trusted Publishing cannot name a reusable workflow
+## `python-publish.yml` — the release uploaded to an index that takes a password, finishable by a re-run
+
+The publish is a job of its own beside the release, so the index credentials
+reach its steps alone. It sits in the same workflow as the release. A tag
+pushed with `GITHUB_TOKEN` starts no other workflow run, so a publish keyed on
+`release: published` or `push: tags` never fires.
+
+```yaml
+  publish:
+    needs: release
+    if: needs.release.outputs.released == 'true'   # a run that cut nothing publishes nothing
+    uses: datapointchris/reusable-workflows/.github/workflows/python-publish.yml@v1
+    with:
+      tag: ${{ needs.release.outputs.tag }}        # built at the tag, never the branch, which may have moved
+      publish-url: https://<index>/                # the upload endpoint
+      check-url: https://<index>/simple/           # where it reads the files the index already holds
+      packages: app app-cli                        # workspace members; empty builds the root project
+      artifacts: wheels-*                          # files an earlier job in the run built, uploaded too
+    secrets:
+      username: ${{ secrets.INDEX_USERNAME }}
+      password: ${{ secrets.INDEX_PASSWORD }}
+```
+
+It runs `uv build`, then `twine check`, then `uv publish`. An index such as
+pypiserver answers 409 to a file it already holds, and uv stops there. So a
+publish that failed after its first file could never be re-run. `check-url`
+has uv skip each file the index already holds with the same hash, and upload
+the rest. Re-running the failed job finishes the version.
+
+The skip needs the rebuilt file to match the uploaded one byte for byte.
+hatchling builds reproducibly, and a re-run builds the same tag. A file of the
+same name with different bytes still fails the upload.
+
+## Publishing to PyPI through Trusted Publishing stays in the caller, because a Trusted Publisher cannot name a reusable workflow
 
 PyPI's Trusted Publishing names the workflow file that uploads, and it cannot
-name a reusable workflow. So the upload runs in a job of the caller's own,
-reading this workflow's outputs. The job sits in the same workflow as the
-release. A tag pushed with `GITHUB_TOKEN` starts no other workflow run, so a
-publish keyed on `release: published` or `push: tags` never fires.
+name a reusable workflow. So that upload runs in a job of the caller's own,
+reading this workflow's outputs. PyPI accepts a second upload of an identical
+file, so a re-run of that job finishes too.
 
 ```yaml
   publish:
@@ -209,6 +247,9 @@ that tag, with notes GitHub generates, and reports it as cut:
 `go-semantic-release.yml` sets `version`. The publish job, goreleaser and the
 module proxy then run as they would have.
 
+A publish that failed after uploading some of its files is re-run the same
+way. `python-publish.yml` uploads only the files the index lacks.
+
 goreleaser uploads its binaries after the release exists. Re-running a failed
 goreleaser job builds them from the version its earlier semver job reported. A
 whole re-run runs semver again, and finds the tag already released. Under
@@ -262,14 +303,16 @@ gh release view -R datapointchris/reusable-workflows   # the release v1 points a
 released as 2.0.0 and moves `v2`, and `v1` stays where it was. A re-run that
 finishes an older release's failed attempt never moves `v1` back onto it.
 
-Every push runs both workflows against the projects under `tests/fixtures`: on
-a branch before it merges, and on `main` before a version is cut. The Python
-workflow computes a release without writing one. The Go workflow builds a
-goreleaser snapshot. On a branch, both finish steps also create a release on
-GitHub itself, on scratch tags the run deletes.
+Every push runs both release workflows against the projects under
+`tests/fixtures`: on a branch before it merges, and on `main` before a version
+is cut. The Python workflow computes a release without writing one. The Go
+workflow builds a goreleaser snapshot. On a branch, both finish steps also
+create a release on GitHub itself, on scratch tags the run deletes.
+`python-publish.yml`'s build and upload steps run in the bats suite, against a
+local pypiserver that already holds part of the release.
 
 The tools inside are pinned too: semantic-release and its plugins, goreleaser,
-uv, and python-semantic-release by its version on PyPI. Handed no binary,
+uv, twine, and python-semantic-release by its version on PyPI. Handed no binary,
 the go-semantic-release action downloads the newest semantic-release on every
 run, and that binary downloads the newest plugins. Either would change how
 every caller's version is worked out, with no commit here. A version of any of

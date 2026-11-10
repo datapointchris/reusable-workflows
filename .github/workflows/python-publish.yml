@@ -1,0 +1,130 @@
+name: python-publish
+
+# Builds a Python project at its release tag and uploads it to a package index
+# that takes a username and password. A file the index already holds is
+# skipped, so re-running a publish that failed partway uploads the rest.
+#
+# A caller publishing to PyPI through Trusted Publishing keeps its own job,
+# because a Trusted Publisher cannot name a reusable workflow.
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: >-
+          The tag to build, from python-semantic-release.yml's tag output. The
+          version is read from the tag, and the branch may have moved since.
+        type: string
+        required: true
+      publish-url:
+        description: The index's upload endpoint.
+        type: string
+        required: true
+      check-url:
+        description: >-
+          The index's simple API. Each file it already holds is skipped rather
+          than uploaded again.
+        type: string
+        required: true
+      packages:
+        description: >-
+          Workspace members to build, separated by spaces. Empty builds the
+          project at the repository root.
+        type: string
+        default: ""
+      artifacts:
+        description: >-
+          A pattern naming artifacts an earlier job in the run uploaded. They
+          are downloaded into dist before the build, and uploaded with it.
+        type: string
+        default: ""
+      runs-on:
+        description: >-
+          The runner, as JSON: '"ubuntu-26.04"', or '["self-hosted","<label>"]'
+          for a pool.
+        type: string
+        default: '"ubuntu-26.04"'
+    secrets:
+      username:
+        description: The index account that uploads.
+        required: true
+      password:
+        description: That account's password, or a token.
+        required: true
+
+jobs:
+  publish:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      # The same uv, downloaded the same way, as python-semantic-release.yml.
+      - name: Download uv
+        id: uv
+        env:
+          VERSION: 0.12.18
+          SHA256_X86_64: 89eadd7c76fc063887959510d5ba0ab1264dfd5f1143b925ddb73021a40acf16
+          SHA256_AARCH64: afb6291f3f0a6b4521fc67b947822506c41dde5b60d2189dd8f3695b2ac8c9e7
+        run: |
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64) sha256=$SHA256_X86_64 ;;
+            aarch64) sha256=$SHA256_AARCH64 ;;
+            *)
+              echo "::error::no uv build is pinned for ${arch}"
+              exit 1
+              ;;
+          esac
+          name="uv-${arch}-unknown-linux-gnu"
+          archive="${RUNNER_TEMP}/${name}.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 20 -o "$archive" \
+            "https://github.com/astral-sh/uv/releases/download/${VERSION}/${name}.tar.gz"
+          echo "${sha256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "path=${RUNNER_TEMP}/${name}/uv" >> "$GITHUB_OUTPUT"
+
+      - name: Download what an earlier job built
+        if: ${{ inputs.artifacts != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifacts }}
+          path: dist
+          merge-multiple: true
+
+      - name: Build at the tag
+        id: build
+        env:
+          UV: ${{ steps.uv.outputs.path }}
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          if [ -z "$PACKAGES" ]; then
+            "$UV" build --out-dir dist
+            exit 0
+          fi
+          for package in $PACKAGES; do
+            "$UV" build --package "$package" --out-dir dist
+          done
+
+      # The index offers no yank, so every file is checked while the upload is
+      # still avoidable.
+      - name: Check each file's metadata
+        env:
+          UV: ${{ steps.uv.outputs.path }}
+        run: '"$UV" tool run --from twine==7.0.0 twine check dist/*'
+
+      # Without --check-url, pypiserver answers 409 to a file it already holds,
+      # and uv stops there. A re-run of an upload that stopped partway would
+      # then fail on the first file the earlier attempt sent.
+      - name: Upload what the index does not hold
+        id: upload
+        env:
+          UV: ${{ steps.uv.outputs.path }}
+          PUBLISH_URL: ${{ inputs.publish-url }}
+          CHECK_URL: ${{ inputs.check-url }}
+          UV_PUBLISH_USERNAME: ${{ secrets.username }}
+          UV_PUBLISH_PASSWORD: ${{ secrets.password }}
+        run: '"$UV" publish --publish-url "$PUBLISH_URL" --check-url "$CHECK_URL" dist/*'

@@ -6,14 +6,17 @@ README says what each one does and what a caller writes.
 
 ## Layout
 
-- `.github/workflows/python-semantic-release.yml` and `go-semantic-release.yml`
-  are the product. Each carries its inputs and outputs under `on.workflow_call`.
-- `.github/workflows/fixtures.yml` runs both against `tests/fixtures/`. On a
-  branch it also runs both `finish` steps against GitHub itself, through
-  `tests/finish-release-against-github.sh`, on scratch tags it deletes.
+- `.github/workflows/python-semantic-release.yml`, `python-publish.yml` and
+  `go-semantic-release.yml` are the product. Each carries its inputs and
+  outputs under `on.workflow_call`.
+- `.github/workflows/fixtures.yml` runs both release workflows against
+  `tests/fixtures/`. On a branch it also runs both `finish` steps against
+  GitHub itself, through `tests/finish-release-against-github.sh`, on scratch
+  tags it deletes.
 - `tests/*.bats` run single steps of the workflows, extracted from the YAML by
   step id. They run against scratch repositories, a bare repository standing
-  in for `origin`, and `tests/github-api-stub.py`.
+  in for `origin`, `tests/github-api-stub.py`, and a local pypiserver at the
+  version the private index runs.
 - `.github/workflows/release.yml` releases this repository. It calls
   `fixtures.yml`, then cuts a version through `go-semantic-release.yml` and
   moves the major tag.
@@ -39,7 +42,7 @@ on their next run.
 - **Caller-level `env` does not reach a called workflow.** Anything a workflow
   needs from the caller is an input.
 - **A change reaches callers only through a release.** A regeneration commits
-  as `chore(ci): …` and can rewrite a runner or a pin inside the two product
+  as `chore(ci): …` and can rewrite a runner or a pin inside the product
   workflows. `.semrelrc` cuts a patch for `chore(ci)` as well as `fix`, so that
   rewrite moves `v1` instead of waiting on main for the next fix.
 
@@ -82,18 +85,29 @@ actions would otherwise fetch are pinned in the workflow:
   and its four plugins by `name@version` in `custom-arguments`.
 - goreleaser by `version: v2.17.0`.
 - uv 0.12.18, downloaded by URL and checked against each Linux build's sha256.
+  Both Python workflows carry the same download step, and the two move
+  together.
 - python-semantic-release 9.21.2, by `--from python-semantic-release==9.21.2`
   on the `uv tool run` line of the release step. Its dependencies resolve
   fresh from PyPI on each run.
+- twine 7.0.0, by `--from twine==7.0.0` in `python-publish.yml`'s check step.
 
-A pin moves only in a commit here, and `fixtures.yml` runs the new version
-before any caller sees it.
+A pin moves only in a commit here. `fixtures.yml` runs a release workflow's new
+version, and the bats suite runs `python-publish.yml`'s, before any caller sees
+it.
 
-## Publishing stays out
+## Trusted Publishing stays in the caller
 
 PyPI's Trusted Publishing cannot name a reusable workflow as the publisher. A
-publish job therefore lives in the caller and reads `released` and `tag` from
-`python-semantic-release.yml`. Do not add one here.
+caller publishing to PyPI that way keeps its own publish job, reading
+`released` and `tag` from `python-semantic-release.yml`. PyPI accepts a second
+upload of an identical file, so that job's re-run finishes without
+`--check-url`.
+
+`python-publish.yml` serves an index that takes a username and password. Its
+upload keeps `--check-url`. pypiserver answers 409 to a file it already holds,
+so without it a publish that stopped partway can never be re-run.
+`tests/partial-publish.bats` fails when the flag goes.
 
 ## Testing a change
 
@@ -117,7 +131,10 @@ any exit code from 60 to 69. That covers both "no release needed" and a run off
 the release branch. `goreleaser-snapshot` on a branch therefore proves the
 `semver` job runs, and says nothing about the version it would cut.
 
-`bats tests/` needs no preparation, from a shell or from the commit hook in a
-linked worktree. Each suite clears git's repository variables in `setup()`, and
-hands the `config` step a `uv` shim that runs `python3`. GitHub's runner image
-has no uv.
+`bats tests/` needs uv on PATH, from a shell or from the commit hook in a
+linked worktree. `validate.yml` installs it before the hooks run.
+`partial-publish.bats` runs the real uv and pypiserver 2.4.1, which
+`uv tool run` fetches from PyPI on its first run. Each suite that runs git
+clears git's repository variables in `setup()`. `first-release-config.bats`
+hands the `config` step a `uv` shim that runs `python3`, because finding a
+Python is uv's part, and `fixtures.yml` covers it.
