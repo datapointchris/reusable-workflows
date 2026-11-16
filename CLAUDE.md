@@ -79,18 +79,22 @@ it. The same holds for a pull request body, which becomes the merge commit.
 
 Third-party actions are pinned to a commit, with the release as a trailing
 comment. `actions/*` actions are pinned to their major tag. The tools those
-actions would otherwise fetch are pinned in the workflow:
+actions would otherwise fetch are pinned in the workflow. Each version is
+written once, where it is pinned:
 
-- semantic-release v2.31.0, downloaded by URL and checked against its sha256,
-  and its four plugins by `name@version` in `custom-arguments`.
-- goreleaser by `version: v2.17.0`.
-- uv 0.12.18, downloaded by URL and checked against each Linux build's sha256.
-  Both Python workflows carry the same download step, and the two move
-  together.
-- python-semantic-release 9.21.2, by `--from python-semantic-release==9.21.2`
-  on the `uv tool run` line of the release step. Its dependencies resolve
-  fresh from PyPI on each run.
-- twine 7.0.0, by `--from twine==7.0.0` in `python-publish.yml`'s check step.
+- semantic-release by the `VERSION` of `go-semantic-release.yml`'s "Download
+  semantic-release" step, which downloads it by URL and checks it against the
+  `SHA256` beside it. Its four plugins are pinned by `name@version` in
+  `custom-arguments`.
+- goreleaser by the `version:` on `go-semantic-release.yml`'s
+  goreleaser-action step.
+- uv by the `VERSION` of the "Download uv" step, which checks each Linux
+  build against its sha256. Both Python workflows carry the same download
+  step, and the two move together.
+- python-semantic-release by `--from python-semantic-release==<version>` on
+  the `uv tool run` line of `python-semantic-release.yml`'s release step. Its
+  dependencies resolve fresh from PyPI on each run.
+- twine by `--from twine==<version>` in `python-publish.yml`'s check step.
 
 A pin moves only in a commit here. `fixtures.yml` runs a release workflow's new
 version, and the bats suite runs `python-publish.yml`'s, before any caller sees
@@ -119,12 +123,12 @@ local `uses:` call against the called workflow's inputs.
 Their tools run locally against the fixtures:
 
 - `semantic-release -v --noop version` from `tests/fixtures/python`, with
-  python-semantic-release 9.21.2. The fixture's release group matches every
+  the python-semantic-release the release step pins. The fixture's release group matches every
   branch, and no tag matches its own `tag_format`, so it always computes
   `fixture-v0.1.0`. `python-noop-outputs` fails when those outputs come back
   empty.
 - `goreleaser release --snapshot --clean` in `tests/fixtures/go`, with
-  goreleaser v2.17.0. The snapshot uploads nothing.
+  the goreleaser `go-semantic-release.yml` pins. The snapshot uploads nothing.
 
 go-semantic-release's action returns without a version, and without failing, on
 any exit code from 60 to 69. That covers both "no release needed" and a run off
@@ -133,8 +137,8 @@ the release branch. `goreleaser-snapshot` on a branch therefore proves the
 
 `bats tests/` needs uv on PATH, from a shell or from the commit hook in a
 linked worktree. `validate.yml` installs it before the hooks run.
-`partial-publish.bats` runs the real uv and pypiserver 2.4.1, which
-`uv tool run` fetches from PyPI on its first run. Each suite that runs git
+`partial-publish.bats` runs the real uv and the pypiserver its `uv tool run`
+line pins, which uv fetches from PyPI on its first run. Each suite that runs git
 clears git's repository variables in `setup()`. `first-release-config.bats`
 hands the `config` step a `uv` shim that runs `python3`, because finding a
 Python is uv's part, and `fixtures.yml` covers it.
