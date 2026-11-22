@@ -145,6 +145,7 @@ jobs:
           bin: ${{ steps.semrel-bin.outputs.path }}
           custom-arguments: >-
             --provider github@1.19.0
+            --provider-opt github_use_compare_commits=true
             --commit-analyzer default@1.15.0
             --ci-condition github@1.11.0
             --changelog-generator default@1.15.0
